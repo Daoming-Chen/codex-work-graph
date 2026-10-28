@@ -1,40 +1,68 @@
 # WorkGraph
 
-WorkGraph（原 Codex Git Graph）按工作项展示项目进展，将仓库中的工作记录关联到真实 Git 提交。当前版本支持读取工作状态、查看关联提交和差异，并保留 Git 提交图、分支和 Worktree 管理。
+WorkGraph 是一个在 Codex 中使用的本地仓库面板。打开「工作进展」，可以查看每项工作做到哪了、接下来做什么，以及对应的代码改动；切换到「Git 历史」，可以查看提交图、审阅差异和操作仓库。
 
-默认进入「工作进展」，读取当前仓库的 `.workgraph.json` 和 HEAD 最近 300 条提交。点击顶部「Git 历史」可切换到原有 Git 操作界面。工作记录需要手动维护，尚未实现自动记录、恢复点或自动验收。配置方法与数据边界见 [WorkGraph 使用说明](docs/work-graph.md)。
+![在 Codex 聊天旁查看 WorkGraph 的工作进展与详情](docs/images/workgraph-codex-scene.png)
 
-现有 GitGraph UI 是后续界面的视觉基准。产品概念与实施前决策见[项目开发视图产品概念](docs/project-development-concept.md)。
+在聊天里让 Codex 整理仓库的工作记录，然后在右侧面板中查看。记录可以展开到子工作和成果，点击标题就能打开详情。
 
-产品显示名称为 WorkGraph。为保持兼容，仓库地址、包名、插件目录与安装标识、`git_graph_*` 工具及现有配置存储名称暂时保留。
+下面用示例仓库演示：展开工作，打开子项查看进展，再从「代码依据」进入关联提交，查看实际差异。
 
-## 可以用来做什么
+![展开工作、查看子项进展，再打开关联提交的代码差异](docs/images/workgraph-walkthrough.gif)
 
-- 按工作项查看当前状态、下一步和关联提交，单独查看未提交文件；状态来自工作记录，不代表验证或用户验收。
-- 看清提交、合并、分支、标签和多个 Worktree 的关系，定位 HEAD 或比较两个提交。
-- 逐文件查看已暂存、未暂存、未跟踪和冲突内容，选择文件暂存，再创建提交。
-- 在面板中管理分支、标签、Stash 和远程仓库，执行 Fetch、Pull、Push 及历史操作。
-- 用新分支和新目录创建 Worktree，识别已被其他 Worktree 占用的分支。
+## 什么时候用
+
+- 隔了一段时间回来继续开发，先看工作状态、下一步和还没解决的问题，再展开具体子工作。
+- 想核对一项工作改了什么，打开「代码依据」查看关联提交和差异。未提交文件会单独列出。
+- 需要检查分支和合并历史，切换到「Git 历史」查看提交图、标签和多个 Worktree，定位 HEAD，或比较两个提交。
+- 准备提交代码时，逐文件检查差异、暂存并创建提交。面板也支持管理分支、标签、Stash 和远程仓库，以及创建新 Worktree。
+
+![Git 历史界面：提交图、分支引用和提交列表](docs/images/workgraph-git-history.png)
+
+上图使用示例仓库。提交图中的连线表示 Git 提交的父子关系。
 
 本地历史读取不需要 GitHub 或 GitLab 登录；远程同步使用本机 Git 的现有认证。
 
-## 开始使用
+<a id="开始使用"></a>
+
+## 第一次使用
+
+### 1. 启动面板
 
 需要 Node.js 22+、npm 和 Git。当前实测环境为 Windows；其他平台尚未验证。
 
-在终端运行以下命令，将最后一行的路径替换为要查看的仓库：
+将最后一行的路径换成要查看的仓库，然后在终端运行：
 
 ```powershell
-git clone https://github.com/Daoming-Chen/codex-git-graph.git
-cd codex-git-graph
+git clone https://github.com/Daoming-Chen/codex-work-graph.git
+cd codex-work-graph
 npm install
 npm run build
 npm start -- --repo "D:\path\to\repository"
 ```
 
-在 Codex 右侧浏览器打开终端输出的完整链接，保持服务运行。按 Ctrl+C 关闭服务。
+在 Codex 右侧浏览器中打开终端输出的完整链接。使用期间保持服务运行，结束后按 Ctrl+C 关闭。
 
-需要通过聊天打开面板时，按[本地插件安装说明](docs/install-lifecycle.md)配置插件。仓库提供源码构建和本地 marketplace 配置；真实桌面宿主中的安装流程仍需验证。
+也可以按[本地插件安装说明](docs/install-lifecycle.md)配置插件，通过聊天打开面板。目前提供源码构建和本地 marketplace 配置，桌面应用中的插件安装流程还需要验证。
+
+### 2. 让 Codex 整理工作记录
+
+在目标仓库的 Codex 聊天中发送：
+
+> 分析这个仓库，把各项工作的进展、下一步、成果和问题整理到根目录的 `.workgraph.json`。先读已有记录，再核对源码、Git 提交和实际验证结果。保留已有工作项的 ID 和依据；无法确定归属的提交不要关联，没有执行的验证不要写成通过。
+
+Codex 会把整理结果写入文件，面板再从文件读取。你也可以自己维护记录，格式和提交关联规则见 [WorkGraph 使用说明](docs/work-graph.md)。没有工作记录时，面板只显示未关联的提交历史。
+
+### 3. 刷新、展开，再查看代码依据
+
+1. 在「工作进展」点击「刷新」，读取最新记录和 Git 数据。刷新只读取数据，不会让 Codex 重新分析仓库。
+2. 点击行首箭头，展开子工作与成果。工作较多时，可以按状态筛选，或搜索工作与依据。
+3. 点击工作标题，在底部「进展」中查看摘要、下一步、成果和问题。
+4. 切换到「代码依据」，检查关联提交与实际差异；需要查看分支或更完整的历史时，点击顶部「Git 历史」。
+
+工作记录需要由 Codex 或人工更新，目前没有后台监控、自动记录、恢复点或自动验收。记录中的「已完成」也不代表验证通过或用户验收。
+
+工作视图默认读取当前工作区的 `.workgraph.json` 和 HEAD 最近 300 条提交，详情中只统计这次加载到的关联提交。
 
 ## 使用前了解
 
@@ -53,6 +81,10 @@ npm start -- --repo "D:\path\to\repository"
 - [故障排查](docs/troubleshooting.md)
 - [贡献指南](CONTRIBUTING.md) · [架构与安全边界](docs/current-implementation.md)
 - [项目开发视图产品概念](docs/project-development-concept.md)（规划，待细化）
+
+### 项目名称与兼容性
+
+WorkGraph 原名 Codex Git Graph。项目包名和插件安装标识为 `codex-work-graph`，插件目录为 `plugins/codex-work-graph`，GitHub 仓库为 `Daoming-Chen/codex-work-graph`。为保持兼容，`git_graph_*` 工具、`GIT_GRAPH_*` 环境变量及现有配置存储名称保留。
 
 ## 许可证
 
