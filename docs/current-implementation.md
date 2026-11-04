@@ -12,6 +12,7 @@
 | `src/remote-actions.mjs`、`src/history-actions.mjs` | 远程引用、历史和工作区写操作校验 |
 | `src/review.mjs` | 元数据、历史／工作目录比较、文件内容 |
 | `src/work-graph.mjs`、`src/ui/work-live.js` | 工作记录读取、提交归属、工作轨道和实际差异展示 |
+| `src/work-analysis.mjs`、`src/work-context.mjs` | 有界分析材料、只读 Codex 调用、增量合并、自动维护与阶段计时 |
 | `src/preferences.mjs` | 仓库配置与审阅进度持久化 |
 | `src/workspace-context.mjs`、`src/codex-context.mjs`、`src/ui/workspace.js` | 本机聊天／项目与 MCP roots 解析、仓库切换与旧请求失效 |
 | `src/panel-manager.mjs` | HTTP 服务复用、容量与空闲回收 |
@@ -38,7 +39,7 @@ MCP Apps 面板在连接、宿主上下文变化、重新聚焦时检查上下�
 
 HTTP 服务绑定单个仓库，只监听 `127.0.0.1`，API 要求随机 Bearer 令牌并校验 Host／Origin，不开放 CORS。GET 只查询，写入使用 POST JSON。
 
-模型只使用 `workgraph_open` 打开面板；上下文、详情、偏好和 Git 操作接口声明为仅供 App 使用。工具可见性由宿主执行，不是额外的仓库授权隔离，MCP 仍继承进程文件权限。
+模型使用 `workgraph_open` 打开面板，使用 `workgraph_work_status` 查询分析状态，并在用户要求初始化或更新时通过 `workgraph_work_analyze` 启动分析；上下文、详情、偏好和 Git 操作接口声明为仅供 App 使用。工具可见性由宿主执行，不是额外的仓库授权隔离，MCP 仍继承进程文件权限。
 
 ## Git 写入
 
@@ -64,4 +65,6 @@ Git 使用参数数组和 literal pathspec；目标 Worktree 校验 common dir�
 
 ## 工作进展读取
 
-`src/work-graph.mjs` 读取仓库 `.workgraph.json` 与 HEAD 最近 300 条提交，按完整 SHA 或 `Work-Item` 标识关联工作。HTTP `/api/work_graph` 与 App 工具 `workgraph_work_graph` 共用读取逻辑。`src/ui/work-live.js` 使用现有仓库请求隔离，切换时清空记录并丢弃旧响应。工作项状态来自记录，验证和用户接受不由提交推断；范围与限制见 [WorkGraph 使用说明](work-graph.md)。
+`src/work-graph.mjs` 优先读取仓库 `.workgraph/state.json`，兼容旧 `.workgraph.json`，并读取 HEAD 最近 300 条提交，按完整 SHA 或 `Work-Item` 标识关联工作。HTTP `/api/work_graph` 与 App 工具 `workgraph_work_graph` 共用读取逻辑。`src/ui/work-live.js` 使用现有仓库请求隔离，切换时清空记录并丢弃旧响应。工作项状态来自记录，验证和用户接受不由提交推断；范围与限制见 [WorkGraph 使用说明](work-graph.md)。
+
+`src/work-analysis.mjs` 加载插件内置初始化／更新 Skill，将 `src/work-context.mjs` 预收集的有界材料交给本机 Codex 只读分析。初始化成功后按代码指纹检测变化并调度增量分析，结果校验后原子保存，跨进程锁避免同一工作区并发分析。面板显示实际阶段与耗时，运行目录保留最近一次计时摘要。状态轮询与定时检测共享检查间隔和正在执行的扫描，避免每次查询重复计算指纹。自动维护仅在本地服务运行期间执行，没有接入聊天结束事件。材料边界、具体时序、重试和存储约束见 [WorkGraph 使用说明](work-graph.md)。

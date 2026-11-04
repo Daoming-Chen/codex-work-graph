@@ -17,6 +17,8 @@ test('real work ownership follows hashes and trailers without inventing validati
   assert.equal(result.records.length,2);assert.ok(result.records.every(r=>r.workId==='WG-A'));assert.equal(result.works[0].status,'进行中');assert.ok(result.dirty.some(f=>f.path==='pending.txt'));
   await writeFile(path.join(root,'.workgraph.json'),JSON.stringify({version:1,works:[]}));
   const unassigned=await readWorkGraph(root);assert.ok(unassigned.records.every(r=>r.workId==='UNASSIGNED'));
+  assert.equal(unassigned.works.find(w=>w.id==='UNASSIGNED').title,'未关联的提交');
+  assert.equal(unassigned.works.find(w=>w.id==='UNASSIGNED').status,'待开始');
   await writeFile(path.join(root,'.workgraph.json'),'{broken');await assert.rejects(()=>readWorkGraph(root));
 });
 

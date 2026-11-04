@@ -6,14 +6,26 @@ import { git, resolveRepository, parseStatus } from './git.mjs';
 export async function readWorkGraph(repositoryPath) {
   const { root, bare } = await resolveRepository(repositoryPath);
   let manifest = { version: 1, works: [] };
-  if (!bare) {
-    const filename = path.join(root, '.workgraph.json');
-    try {
-      const info = await lstat(filename);
-      if (!info.isFile() || info.isSymbolicLink() || info.size > 262144) throw new Error('工作记录必须是小于 256 KiB 的普通文件。');
-      manifest = JSON.parse(await readFile(filename, 'utf8'));
-    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  let source = 'Git';
+  if (!bare) { const record = await loadWorkRecord(root); manifest = record.manifest; source = record.source; }
+  const works = validateWorkManifest(manifest);
+  const head = (await git(root, ['rev-parse','--verify','--quiet','HEAD']).catch(() => '')).trim();
+  const raw = head ? await git(root, ['log','--max-count=301','--format=%H%x00%aI%x00%s%x00%b%x00','HEAD','--']) : '';
+  const fields = raw.split('\0'), records = [];
+  for (let i=0;i+3<fields.length;i+=4) {
+    const hash=fields[i].trim(); if (!hash) continue;
+    const explicit=works.find(w=>w.commits.includes(hash));
+    const trailers=[...fields[i+3].matchAll(/^Work-Item: ([A-Z][A-Z0-9-]{0,39})\s*$/gm)].map(m=>m[1]);
+    const owner=explicit || (trailers.length===1 ? works.find(w=>w.id===trailers[0]) : null);
+    records.push({hash,time:fields[i+1],title:fields[i+2],workId:owner?.id || 'UNASSIGNED'});
   }
+  const hasMore=records.length>300; records.length=Math.min(records.length,300);
+  if(records.some(r=>r.workId==='UNASSIGNED')) works.push({id:'UNASSIGNED',title:'未关联的提交',status:'待开始',next:'核对提交归属',summary:'尚未关联到工作项的历史。',commits:[]});
+  const dirty=bare?[]:parseStatus(await git(root,['status','--porcelain=v1','-z','--untracked-files=all'])).files;
+  return {repository:{path:root,name:path.basename(root)},head,works,records,dirty,hasMore,scope:'HEAD 最近 300 条提交',source,initialized:source === '.workgraph/state.json + Git'};
+}
+
+export function validateWorkManifest(manifest) {
   if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.works) || manifest.works.length > 100) throw new Error('工作记录格式无效。');
   const ids = new Set(), hashes = new Set();
   const works = manifest.works.map(w => {
@@ -42,18 +54,22 @@ export async function readWorkGraph(repositoryPath) {
       if (++depth > 2) throw new Error('工作层级最多支持三层。');
     }
   }
-  const head = (await git(root, ['rev-parse','--verify','--quiet','HEAD']).catch(() => '')).trim();
-  const raw = head ? await git(root, ['log','--max-count=301','--format=%H%x00%aI%x00%s%x00%b%x00','HEAD','--']) : '';
-  const fields = raw.split('\0'), records = [];
-  for (let i=0;i+3<fields.length;i+=4) {
-    const hash=fields[i].trim(); if (!hash) continue;
-    const explicit=works.find(w=>w.commits.includes(hash));
-    const trailers=[...fields[i+3].matchAll(/^Work-Item: ([A-Z][A-Z0-9-]{0,39})\s*$/gm)].map(m=>m[1]);
-    const owner=explicit || (trailers.length===1 ? works.find(w=>w.id===trailers[0]) : null);
-    records.push({hash,time:fields[i+1],title:fields[i+2],workId:owner?.id || 'UNASSIGNED'});
+  return works;
+}
+
+export async function loadWorkRecord(root) {
+  try {
+    const directory = await lstat(path.join(root, '.workgraph'));
+    if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error('.workgraph 必须是普通目录。');
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  for (const name of ['.workgraph/state.json', '.workgraph.json']) {
+    try {
+      const filename = path.join(root, name), info = await lstat(filename);
+      if (!info.isFile() || info.isSymbolicLink() || info.size > 262144) throw new Error('工作记录必须是小于 256 KiB 的普通文件。');
+      const record = JSON.parse(await readFile(filename, 'utf8'));
+      validateWorkManifest(record);
+      return { manifest: record, source: name + ' + Git' };
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
-  const hasMore=records.length>300; records.length=Math.min(records.length,300);
-  if(records.some(r=>r.workId==='UNASSIGNED')) works.push({id:'UNASSIGNED',title:'未关联的提交',status:'待开始',next:'核对提交归属',summary:'尚未关联到工作项的历史。',commits:[]});
-  const dirty=bare?[]:parseStatus(await git(root,['status','--porcelain=v1','-z','--untracked-files=all'])).files;
-  return {repository:{path:root,name:path.basename(root)},head,works,records,dirty,hasMore,scope:'HEAD 最近 300 条提交',source:'.workgraph.json + Git'};
+  return { manifest: { version: 1, works: [] }, source: 'Git' };
 }

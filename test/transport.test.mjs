@@ -12,10 +12,33 @@ import { startHttp } from '../src/http.mjs';
 import { randomUUID } from 'node:crypto';
 import { git } from '../src/git.mjs';
 
-const expectedTools = ['workgraph_work_graph', 'workgraph_open', 'workgraph_context', 'workgraph_commit', 'workgraph_worktree', 'workgraph_files', 'workgraph_diff', 'workgraph_file_content', 'workgraph_repository_info', 'workgraph_commit_info', 'workgraph_ref_info', 'workgraph_resolve', 'workgraph_prepare', 'workgraph_execute', 'workgraph_preferences', 'workgraph_save_preferences'].sort();
+const expectedTools = ['workgraph_work_analyze', 'workgraph_work_status', 'workgraph_work_graph', 'workgraph_open', 'workgraph_context', 'workgraph_commit', 'workgraph_worktree', 'workgraph_files', 'workgraph_diff', 'workgraph_file_content', 'workgraph_repository_info', 'workgraph_commit_info', 'workgraph_ref_info', 'workgraph_resolve', 'workgraph_prepare', 'workgraph_execute', 'workgraph_preferences', 'workgraph_save_preferences'].sort();
 
 let f;
 before(async () => { f = await createFixture(); });
+
+test('HTTP initialization requires authenticated POST and publishes validated analysis',async t=>{
+  const fixture=await createFixture();let calls=0;
+  const panel=await startHttp({repositoryPath:fixture.root,html:'test',analysisOptions:{runner:async()=>{calls++;return {version:1,works:[{id:'WG-INIT',title:'Existing project',status:'进行中',commits:[]}]};}}});
+  t.after(()=>panel.close());
+  const endpoint=panel.origin+'/api/work_analyze',headers={Authorization:`Bearer ${panel.token}`,'Content-Type':'application/json'};
+  assert.equal((await fetch(endpoint,{headers})).status,405);
+  assert.equal((await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);
+  assert.equal(calls,0);
+  const start=await (await fetch(endpoint,{method:'POST',headers,body:JSON.stringify({mode:'initialize'})})).json();
+  assert.equal(start.state,'running');
+  let status;
+  for(let i=0;i<100;i++) {
+    status=await (await fetch(panel.origin+'/api/work_status',{headers})).json();
+    if(status.state!=='running')break;
+    await new Promise(r=>setTimeout(r,25));
+  }
+  assert.equal(status.state,'idle',status.error);
+  assert.equal(status.phase,null);assert.equal(status.lastRun.state,'idle');
+  assert.ok(Number.isFinite(status.lastRun.elapsedMs));assert.ok(Number.isFinite(status.lastRun.durationsMs.analysis));
+  const data=await (await fetch(panel.origin+'/api/work_graph',{headers})).json();
+  assert.equal(data.initialized,true);assert.equal(data.works[0].id,'WG-INIT');assert.equal(calls,1);
+});
 test('loopback HTTP requires its token, enforces origin and exposes only the bound repo', async t => {
   const panel = await startHttp({ repositoryPath: f.root, html: '<!doctype html><title>Test</title>' });
   t.after(() => panel.server.close());
@@ -64,7 +87,7 @@ test('MCP advertises thread entrypoint, serves UI and reads real Git data', asyn
   assert.deepEqual(open._meta['openai/ui'].entrypoints, [{ type: 'thread' }]);
   assert.equal(tools.tools.find(t => t.name === 'workgraph_execute').annotations.readOnlyHint, false);
   assert.equal(tools.tools.find(t => t.name === 'workgraph_execute').annotations.idempotentHint, true);
-  assert.ok(tools.tools.filter(t => !['workgraph_execute', 'workgraph_save_preferences'].includes(t.name)).every(t => t.annotations.readOnlyHint));
+  assert.ok(tools.tools.filter(t => !['workgraph_execute', 'workgraph_save_preferences', 'workgraph_work_analyze'].includes(t.name)).every(t => t.annotations.readOnlyHint));
   const preferences = tools.tools.find(t => t.name === 'workgraph_save_preferences');
   assert.deepEqual(preferences.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
   const resources = await client.readResource({ uri: 'ui://workgraph/panel.html' });

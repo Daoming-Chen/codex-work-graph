@@ -25,7 +25,7 @@ test('context distinguishes missing, ambiguous, invalid roots and explicit overr
   assert.equal((await repositoryContext(noRoots, { environmentPath: 'configured', resolve })).context.source, 'environment');
 });
 
-test('MCP resolves changing roots and advertises only open to the model', async t => {
+test('MCP resolves changing roots and exposes only open and analysis controls to the model', async t => {
   const fixture = await createFixture();
   const server = createMcpServer('<title>Context</title>');
   const client = new Client({ name: 'workspace-host', version: '1' }, { capabilities: { roots: { listChanged: true } } });
@@ -35,7 +35,7 @@ test('MCP resolves changing roots and advertises only open to the model', async 
   t.after(async () => { await client.close(); await server.close(); });
   await server.mcp.connect(a); await client.connect(b);
   const tools = (await client.listTools()).tools;
-  assert.deepEqual(tools.filter(tool => tool._meta.ui.visibility.includes('model')).map(tool => tool.name), ['workgraph_open']);
+  assert.deepEqual(tools.filter(tool => tool._meta.ui.visibility.includes('model')).map(tool => tool.name).sort(), ['workgraph_open', 'workgraph_work_analyze', 'workgraph_work_status']);
   const call = name => client.callTool({ name: `workgraph_${name}`, arguments: {} });
   const opened = (await call('open')).structuredContent;
   assert.equal(opened.repository.path, fixture.root);

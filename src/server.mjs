@@ -1,3 +1,4 @@
+import { createWorkAnalysis } from './work-analysis.mjs';
 import { readWorkGraph } from './work-graph.mjs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -23,11 +24,12 @@ async function readUi() {
   throw new Error('请先运行 npm run build，生成 WorkGraph 面板。');
 }
 
-export function createMcpServer(html, { contextOptions = {} } = {}) {
+export function createMcpServer(html, { contextOptions = {}, analysisOptions = {} } = {}) {
   const mcp = new McpServer({ name: 'workgraph', version: '0.3.0' });
   const uri = 'ui://workgraph/panel.html';
+  const analysis = createWorkAnalysis(analysisOptions);
   const panels = createPanelManager({ html });
-  mcp.server.onclose = () => { void panels.close(); };
+  mcp.server.onclose = () => { void panels.close(); void analysis.close(); };
   // Context lookups always query roots afresh, so changes require no cached-state
   // invalidation. Accept the standard notification without guessing a thread id.
   mcp.server.setNotificationHandler(RootsListChangedNotificationSchema, () => {});
@@ -65,7 +67,16 @@ export function createMcpServer(html, { contextOptions = {} } = {}) {
   registerAppTool(mcp, 'workgraph_work_graph', {
     title: '读取工作进展', description: 'Read explicit work records and real local Git commits.',
     inputSchema: { ...repo }, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
-  }, safely(({ repositoryPath }) => readWorkGraph(requiredRepo(repositoryPath))));
+  }, safely(async ({ repositoryPath }) => ({ ...await readWorkGraph(requiredRepo(repositoryPath)), analysis: await analysis.status(requiredRepo(repositoryPath)) })));
+  registerAppTool(mcp, 'workgraph_work_status', {
+    title: '查看工作分析状态', description: 'Read local WorkGraph analysis progress.', inputSchema: repo, annotations, _meta:{ui:{resourceUri:uri,visibility:['app','model']}},
+  }, safely(({repositoryPath})=>analysis.status(requiredRepo(repositoryPath))));
+  registerAppTool(mcp, 'workgraph_work_analyze', {
+    title: '初始化或更新工作记录', description: 'Explicitly initialize the repository and enable automatic updates, or retry analysis. Runs local Codex read-only and saves validated records in .workgraph/. Uses local Codex authentication and model usage.',
+    inputSchema: {...repo, mode:z.enum(['initialize','update']).default('initialize')},
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
+    _meta:{ui:{resourceUri:uri,visibility:['app','model']}},
+  }, safely(({repositoryPath,mode})=>analysis.start(requiredRepo(repositoryPath),mode)));
   registerAppTool(mcp, 'workgraph_commit', {
     title: '查看提交', description: 'Read commit details and a bounded patch; merges compare to the first parent.',
     inputSchema: { ...repo, hash: z.string().regex(/^[a-f0-9]{40,64}$/) }, annotations,
@@ -91,7 +102,7 @@ export function createMcpServer(html, { contextOptions = {} } = {}) {
   registerAppTool(mcp, 'workgraph_execute', { title: '执行已检查的 Git 操作', description: 'Execute a prepared action once with state revalidation. Can modify local and remote Git state, rewrite history, or discard explicitly selected changes. Runs normal Git hooks.', inputSchema: { ...repo, actionId: z.string().uuid(), operationId: z.string().uuid() }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }, _meta: { ui: { resourceUri: uri, visibility: ['app'] } } }, safely(({ repositoryPath, actionId, operationId }) => executeAction(requiredRepo(repositoryPath), actionId, operationId)));
   let closing;
   return { mcp, close: () => closing ??= (async () => {
-    try { await panels.close(); }
+    try { await panels.close(); await analysis.close(); }
     finally { await mcp.close(); }
   })() };
 }

@@ -16,7 +16,7 @@ async function call(route, args = {}) {
   const session=workspace.capture(), repositoryPath=state.repositoryPath;
   try {
   if (token) {
-    const write = ['prepare','execute','save_preferences'].includes(route), q = new URLSearchParams();
+    const write = ['prepare','execute','save_preferences','work_analyze'].includes(route), q = new URLSearchParams();
     if (!write) for (const [key,value] of Object.entries(args)) if (value !== undefined) q.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
     const response = await fetch(`/api/${route}?${q}`, {method:write?'POST':'GET',headers:{Authorization:`Bearer ${token}`,...(write?{'Content-Type':'application/json'}:{})},...(write?{body:JSON.stringify(args)}:{}),signal:AbortSignal.any([session.signal,AbortSignal.timeout(write?75000:60000)])});
     const data = await response.json(); session.assert(); if (!response.ok) throw new Error(data.error || '本地服务请求失败。'); return data;

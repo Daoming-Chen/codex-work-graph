@@ -1,3 +1,4 @@
+import { createWorkAnalysis } from './work-analysis.mjs';
 import { readWorkGraph } from './work-graph.mjs';
 import { createServer } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -6,8 +7,9 @@ import { filesDetail, fileDiff, resolveRef, prepareAction, executeAction } from 
 import { repositoryInfo, commitInfo, refInfo, reviewFiles, reviewDiff, fileContent } from './review.mjs';
 import { readPreferences, savePreferences } from './preferences.mjs';
 
-export async function startHttp({ repositoryPath, html, port = 0, now = Date.now }) {
+export async function startHttp({ repositoryPath, html, port = 0, now = Date.now, analysisOptions = {} }) {
   const { root } = await resolveRepository(repositoryPath);
+  const analysis = createWorkAnalysis(analysisOptions);
   const token = randomBytes(32).toString('hex');
   let origin;
   let lastActivity = now();
@@ -33,7 +35,7 @@ export async function startHttp({ repositoryPath, html, port = 0, now = Date.now
     activeRequests++;
     try {
       let data;
-      const writable = ['/api/prepare', '/api/execute', '/api/save_preferences'].includes(url.pathname);
+      const writable = ['/api/prepare', '/api/execute', '/api/save_preferences', '/api/work_analyze'].includes(url.pathname);
       if ((writable && req.method !== 'POST') || (!writable && req.method !== 'GET')) { res.writeHead(405).end('Method not allowed'); return; }
       let body;
       if (writable) {
@@ -49,7 +51,9 @@ export async function startHttp({ repositoryPath, html, port = 0, now = Date.now
         }
         data=await snapshot(root,options);
       }
-      else if (url.pathname === '/api/work_graph') data = await readWorkGraph(root);
+      else if (url.pathname === '/api/work_graph') data = { ...await readWorkGraph(root), analysis: await analysis.status(root) };
+      else if (url.pathname === '/api/work_status') data = await analysis.status(root);
+      else if (url.pathname === '/api/work_analyze') data = await analysis.start(root, body.mode);
       else if (url.pathname === '/api/commit') data = await commitDetail(root, url.searchParams.get('hash') || '');
       else if (url.pathname === '/api/worktree') data = await worktreeDetail(root, url.searchParams.get('path') || '');
       else if (url.pathname === '/api/files') data = await reviewFiles(root, JSON.parse(url.searchParams.get('input') || '{}'));
@@ -76,6 +80,7 @@ export async function startHttp({ repositoryPath, html, port = 0, now = Date.now
     server.once('error', reject);
     server.listen(port, '127.0.0.1', resolve);
   });
+  server.once('close', () => { void analysis.close(); });
   origin = `http://127.0.0.1:${server.address().port}`;
   return { server, url: `${origin}/#token=${token}`, origin, token,
     get lastActivity() { return lastActivity; },

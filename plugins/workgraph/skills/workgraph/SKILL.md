@@ -9,7 +9,7 @@ description: 打开当前仓库的 WorkGraph 面板，查看分支合并历史�
 
 若 MCP 工具尚未加载，可通过 Node.js 运行本技能目录下的 `../../dist/server.mjs --http --repo <仓库绝对路径>`，读取标准输出的完整链接并打开。保持服务进程运行；Windows 后台启动使用隐藏窗口。不要在标准输出中自行拼接访问令牌。
 
-Agent 只使用 `workgraph_open` 打开面板。详情查询、偏好保存和 Git 操作工具仅供 App 调用，不应由 Agent 绕过面板调用。面板支持历史筛选、分页、逐文件审阅、两端点及工作目录比较，以及文件暂存与提交、分支与标签管理、远程同步、Merge／Rebase／Cherry-pick／Revert／Reset／Drop、Stash、指定文件丢弃或清理、冲突后的继续／中止，以及新分支新目录 Worktree 创建。
+Agent 使用 `workgraph_open` 打开面板。用户要求初始化或更新工作记录时，分别遵循 `workgraph-init` 或 `workgraph-update` Skill，先调用 `workgraph_work_status` 检查是否运行中，再调用 `workgraph_work_analyze`，显式传入当前仓库绝对路径和对应模式。启动成功只表示任务已启动，不表示分析已完成。详情查询、偏好保存和 Git 操作工具仅供 App 调用，不应由 Agent 绕过面板调用。面板支持历史筛选、分页、逐文件审阅、两端点及工作目录比较，以及文件暂存与提交、分支与标签管理、远程同步、Merge／Rebase／Cherry-pick／Revert／Reset／Drop、Stash、指定文件丢弃或清理、冲突后的继续／中止，以及新分支新目录 Worktree 创建。
 
 Git 写入在面板中经过检查和执行，删除及历史重写需确认具体目标和后果。打开面板本身不授权执行 Git 写入或远程推送。失败后核对实际状态；冲突应保留，用户处理内容后刷新，再标记解决并继续或中止。提交遵循本机 hooks 和签名配置，不绕过失败。
 

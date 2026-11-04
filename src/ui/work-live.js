@@ -1,15 +1,16 @@
 // Read-only work projection. Agent-maintained records provide intent; Git provides evidence.
-export function installWorkGraph({call}) {
+export function installWorkGraph({call,now=Date.now}) {
   const $=id=>document.getElementById(id);
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let data,selected=null,query='',filter='全部',generation=0,request=0,patchRequest=0,detail=false,tab='progress',detailRatio=.34,drag=null;
+  let refreshedAt=0,analysisPending=0;
   const expanded=new Set(),searchCollapsed=new Set();
   const toggle=document.createElement('button');toggle.id='work-mode';toggle.textContent='Git 历史';$('repo-name').after(toggle);
   const brand=document.createElement('strong');brand.className='work-brand';brand.textContent='WorkGraph';toggle.before(brand);
   const root=document.createElement('section');root.id='work-view';root.setAttribute('aria-label','仓库工作进展');
   root.innerHTML=`<div class="work-overview"><div class="work-heading"><h1>工作进展</h1><span id="work-project"></span></div><div id="work-lanes" class="work-lanes" aria-label="工作状态总览"></div></div>
-    <div class="work-toolbar"><select id="work-filter" aria-label="工作状态筛选"><option>全部</option><option>进行中</option><option>已完成</option><option>已搁置</option><option>待开始</option></select><input id="work-search" type="search" placeholder="搜索工作与依据" aria-label="搜索工作与依据"><span class="grow"></span><button id="work-reload">刷新</button><button id="work-theme" aria-label="切换明暗主题">主题</button></div>
-    <div class="work-layout" id="work-layout"><section class="work-list" id="work-list" aria-label="工作动线"><div class="work-list-heading"><span>工作动线 / 子工作与成果</span><span>状态</span><span>最近更新</span></div><div id="work-rows"></div></section><div id="work-resize" role="separator" aria-label="调整工作详情高度" aria-orientation="horizontal" aria-valuemin="20" aria-valuemax="60" aria-valuenow="34" tabindex="0" hidden></div><aside id="work-detail" aria-label="工作详情" hidden></aside></div>
+    <div class="work-toolbar"><select id="work-filter" aria-label="工作状态筛选"><option>全部</option><option>进行中</option><option>已完成</option><option>已搁置</option><option>待开始</option></select><input id="work-search" type="search" placeholder="搜索工作与依据" aria-label="搜索工作与依据"><span class="grow"></span><button id="work-analyze">初始化当前仓库</button><button id="work-reload">刷新</button><button id="work-theme" aria-label="切换明暗主题">主题</button></div>
+    <div id="work-analysis-status" class="work-analysis-status" role="status"></div><div class="work-layout" id="work-layout"><section class="work-list" id="work-list" aria-label="工作动线"><div class="work-list-heading"><span>工作动线 / 子工作与成果</span><span>状态</span><span>最近更新</span></div><div id="work-rows"></div></section><div id="work-resize" role="separator" aria-label="调整工作详情高度" aria-orientation="horizontal" aria-valuemin="20" aria-valuemax="60" aria-valuenow="34" tabindex="0" hidden></div><aside id="work-detail" aria-label="工作详情" hidden></aside></div>
     <div class="work-footer muted"><span id="work-count" role="status"></span><span>本地工作记录与 Git</span></div>`;
   $('workspace').before(root);
   const mode=on=>{$('app').classList.toggle('work-mode',on);toggle.textContent=on?'Git 历史':'工作进展';};
@@ -45,9 +46,9 @@ export function installWorkGraph({call}) {
   }
   function showDetail(on) {$('work-detail').hidden=!on;$('work-resize').hidden=!on;if(on)applySize();}
   function reset() {
-    generation++;request++;patchRequest++;data=null;selected=null;detail=false;tab='progress';query='';filter='全部';expanded.clear();searchCollapsed.clear();
+    generation++;request++;patchRequest++;data=null;selected=null;detail=false;tab='progress';query='';filter='全部';refreshedAt=0;analysisPending=0;expanded.clear();searchCollapsed.clear();
     $('work-search').value='';$('work-filter').value='全部';$('work-rows').innerHTML='';$('work-detail').innerHTML='';showDetail(false);
-    $('work-lanes').textContent='';$('work-project').textContent='';$('work-count').textContent='读取工作记录…';$('work-list').scrollTop=0;
+    $('work-analysis-status').textContent='';$('work-analyze').disabled=true;$('work-lanes').textContent='';$('work-project').textContent='';$('work-count').textContent='读取工作记录…';$('work-list').scrollTop=0;
   }
   function renderDetail() {
     const w=data.works.find(w=>w.id===selected);
@@ -80,10 +81,41 @@ export function installWorkGraph({call}) {
     if(focus?.record||focus?.expand){Array.from(root.querySelectorAll?.('[data-record], [data-expand]')||[]).find(control=>focus.record?control.dataset.record===focus.record:control.dataset.expand===focus.expand)?.focus({preventScroll:true});}
     $('work-list').scrollTop=scrollTop;if(!preserveDetail)renderDetail();
   }
+  function renderAnalysis() {
+    const status=data?.analysis,running=status?.state==='running';
+    const seconds=value=>`${(Math.max(0,value)/1000).toFixed(1)} 秒`;
+    const labels={prepare:'准备分析',fingerprint:'检查项目变化',collect:'收集分析材料',analysis:'本机 Codex 正在分析项目',validate:'校验工作项',recheck:'复核项目变化',save:'保存工作记录'};
+    const elapsed=Number.isFinite(status?.elapsedMs)?` · 已用 ${seconds(status.elapsedMs)}`:'';
+    const last=status?.lastRun,summary=last?.state==='idle'&&Number.isFinite(last.elapsedMs)?`上次分析完成，用时 ${seconds(last.elapsedMs)} · `:'';
+    $('work-analyze').disabled=running||status?.state==='unavailable';
+    $('work-analyze').textContent=running?'正在分析…':data?.initialized?'更新分析':'初始化当前仓库';
+    $('work-analysis-status').textContent=running?`${labels[status.phase]||labels.analysis}${elapsed}，完成后将自动显示。`:status?.state==='unavailable'?status.error:status?.error?`分析未完成：${status.error} 原有记录已保留，可点击重试。`:data?.initialized?`${summary}工作记录自动维护中 · 服务运行期间检测代码变化并增量更新。`:'';
+  }
+  async function analyze() {
+    const epoch=generation,seq=++request;analysisPending=seq;
+    $('work-analyze').disabled=true;
+    try {
+      const status=await call('work_analyze',{mode:data?.initialized?'update':'initialize'});
+      if(epoch!==generation||seq!==request)return;
+      if(data){data.analysis=status;renderAnalysis();}
+    } catch(error){if(epoch===generation&&seq===request){$('work-analysis-status').textContent=error.message;$('work-analyze').disabled=false;}}
+    finally{if(epoch===generation&&analysisPending===seq)analysisPending=0;}
+  }
   async function update() {
     const epoch=generation,seq=++request;
-    try{const result=await call('work_graph');if(epoch!==generation||seq!==request)return;patchRequest++;data=result;render();}
-    catch(error){if(epoch===generation&&seq===request){patchRequest++;data=null;selected=null;detail=false;$('work-detail').innerHTML='';showDetail(false);$('work-lanes').textContent='';$('work-rows').textContent=error.message;$('work-count').textContent='工作记录读取失败';}}
+    try{const result=await call('work_graph');if(epoch!==generation||seq!==request)return;const changed=JSON.stringify([data?.repository,data?.works,data?.records,data?.dirty])!==JSON.stringify([result.repository,result.works,result.records,result.dirty]);data=result;refreshedAt=now();renderAnalysis();if(changed){patchRequest++;render();}}
+    catch(error){if(epoch===generation&&seq===request){patchRequest++;data=null;selected=null;detail=false;$('work-detail').innerHTML='';showDetail(false);$('work-analysis-status').textContent='';$('work-analyze').disabled=true;$('work-lanes').textContent='';$('work-rows').textContent=error.message;$('work-count').textContent='工作记录读取失败';}}
+  }
+  async function poll() {
+    if(!data||analysisPending||document.hidden)return;
+    const epoch=generation,seq=request,previous=data.analysis;
+    try {
+      const status=await call('work_status');
+      if(epoch!==generation||seq!==request||!data||data.analysis!==previous)return;
+      const changed=(previous?.state||'idle')!==status.state||(previous?.completedAt??null)!==(status.completedAt??null)||(previous?.lastRun?.completedAt??null)!==(status.lastRun?.completedAt??null);
+      data.analysis=status;renderAnalysis();
+      if(changed||(status.state!=='running'&&now()-refreshedAt>=15000))await update();
+    } catch(error){if(epoch===generation&&seq===request&&data?.analysis===previous)$('work-analysis-status').textContent=`分析状态读取失败：${error.message}`;}
   }
   root.onclick=async event=>{
     const expander=event.target.closest('[data-expand]');
@@ -109,6 +141,8 @@ export function installWorkGraph({call}) {
   if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(detail)applySize();}).observe($('work-layout'));
   $('work-filter').onchange=event=>{patchRequest++;filter=event.target.value;searchCollapsed.clear();render();};
   $('work-search').oninput=event=>{patchRequest++;query=event.target.value.trim().toLowerCase();searchCollapsed.clear();render();};
+  $('work-analyze').onclick=()=>analyze();
   $('work-reload').onclick=()=>update();$('work-theme').onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light';};
-  reset();return {reset,update};
+  if(typeof window!=='undefined'){let polling=false;const timer=setInterval(async()=>{if(polling)return;polling=true;try{await poll();}finally{polling=false;}},5000);window.addEventListener('pagehide',()=>clearInterval(timer),{once:true});}
+  reset();return {reset,update,poll};
 }
