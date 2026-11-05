@@ -101,6 +101,60 @@
       "passed": 24,
       "log": ".test-output/skill-final-regression.log"
     },
-    "environment": "沙箱回环连接受限，完整测试在获准的沙箱外执行。运行文件随 skill 交付，不依赖源码目录。"
+    "environment": "沙箱回环连接受限，完整测试在获准的沙箱外执行。运行文件随 skill 交付，不依赖源码目录。",
+    "scope": "首次独立 skill 体验阶段，主线整合前"
+  },
+  "mainIntegration": {
+    "base": "a0b45d1e53def0659a4320414221777d9111df7a",
+    "sourceBranch": "codex/workgraph-skill",
+    "decisions": [
+      "基于远端 main 重放独有功能，跳过重复截图历史",
+      "保留 plugins/workgraph、workgraph_*、WORKGRAPH_* 统一命名",
+      "保留远端性能收集模块、依赖锁、工作记录和存储命名",
+      "只在用户要求时更新地图，Git 管理保留在插件",
+      "私有路径基线随 CLI 材料包传递并恢复，避免序列化遗漏"
+    ],
+    "review": {
+      "preparedMode": "initialize",
+      "worktreeSurvivedJsonRoundTrip": {
+        "version": 1,
+        "dirtyPaths": [
+          "pending.txt"
+        ],
+        "complete": true
+      },
+      "secondMode": "update",
+      "secondScope": "incremental",
+      "statusReadOnly": true,
+      "http": {
+        "workGraph": 200,
+        "gitWrite": 404,
+        "recordUnchanged": true
+      },
+      "pluginReferences": true,
+      "pluginDoctor": true
+    },
+    "reviewEvidence": ".test-output/main-replay-review-iC5NPl/evidence.json",
+    "targetedTests": {
+      "passed": 35,
+      "failed": 0
+    },
+    "progressUiTests": {
+      "passed": 22,
+      "failed": 0
+    },
+    "fullSuite": {
+      "tests": 136,
+      "passed": 136,
+      "failed": 0,
+      "log": ".test-output/main-integration-full.log"
+    },
+    "checks": {
+      "build": "passed",
+      "syntax": "passed",
+      "skill": "passed",
+      "documentationLinks": "passed",
+      "whitespace": "passed"
+    }
   }
 }
