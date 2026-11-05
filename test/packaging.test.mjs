@@ -24,7 +24,7 @@ test('portable distribution launches after relocation outside the source checkou
   assert.equal(manifest.extensions['com.openai'].interface.displayName, 'WorkGraph');
   assert.equal(marketplace.plugins[0].name, manifest.name);
   assert.equal(marketplace.plugins[0].source.path, './plugins/workgraph');
-  assert.match(await readFile(path.join(relocated, 'skills/workgraph/SKILL.md'), 'utf8'), /`workgraph_open`/);
+  assert.match(await readFile(path.join(relocated, 'skills/workgraph/SKILL.md'), 'utf8'), /scripts\/workgraph\.mjs/);
   await assert.rejects(access(path.join(relocated, '.codex-plugin')), { code: 'ENOENT' });
   const portable = JSON.parse(await readFile(path.join(relocated, 'mcp.json'), 'utf8'));
   assert.equal(portable.mcpServers.workgraph.command, 'node');
@@ -86,9 +86,9 @@ test('relocated analyzer loads both packaged skills without invoking a model', a
     }
     assert.fail('Packaged analysis did not settle within 15 seconds.');
   }
-  for (const [mode, name] of [['initialize', 'workgraph-init'], ['update', 'workgraph-update']]) {
-    const skill = path.join(relocated, 'skills', name, 'SKILL.md');
-    assert.match(await readFile(skill, 'utf8'), new RegExp(`name: ${name}`));
+  for (const [mode, name] of [['initialize', 'initialize'], ['update', 'update']]) {
+    const skill = path.join(relocated, 'skills/workgraph/references', `${name}.md`);
+    assert.ok((await readFile(skill, 'utf8')).length > 0);
     if (mode === 'update') {
       // A saved record enables the update entry point without a model call.
       await writeFile(path.join(root, '.workgraph/state.json'), JSON.stringify({ version: 1, works: [], automation: { enabled: false } }));
@@ -97,14 +97,14 @@ test('relocated analyzer loads both packaged skills without invoking a model', a
     try {
       const missing = await analyze(mode);
       assert.equal(missing.state, 'failed');
-      assert.match(missing.error, /缺少 WorkGraph 分析 Skill/);
+      assert.match(missing.error, /缺少 WorkGraph 分析规范/);
     } finally {
       await rename(`${skill}.missing`, skill);
     }
     const loaded = await analyze(mode);
     assert.equal(loaded.state, 'failed');
     assert.match(loaded.error, /本机 Codex 分析失败/);
-    assert.doesNotMatch(loaded.error, /缺少 WorkGraph 分析 Skill/);
+    assert.doesNotMatch(loaded.error, /缺少 WorkGraph 分析规范/);
     assert.equal(loaded.lastRun.failedPhase, 'analysis');
   }
   await client.close();

@@ -31,13 +31,13 @@ const sample=()=>({repository:{name:'REPO'},works:[
 test('initialization and update buttons route analysis and show failures without losing records',async t=>{
   let data=sample(),calls=[];
   const {ui,$}=mount(t,async(route,args)=>{calls.push({route,args});return route==='work_analyze'?{state:'running'}:data;});
-  await ui.update();assert.equal($('work-analyze').textContent,'初始化当前仓库');
-  await $('work-analyze').onclick();assert.equal(calls.at(-1).args.mode,'initialize');
+  await ui.update();assert.equal($('work-analyze').textContent,'更新工作地图');
+  await $('work-analyze').onclick();assert.equal(calls.at(-1).args.mode,'auto');
   assert.equal($('work-analyze').disabled,true);assert.match($('work-analysis-status').textContent,/正在分析/);
   data={...sample(),initialized:true,analysis:{state:'failed',error:'offline'}};
   await ui.update();assert.match($('work-analysis-status').textContent,/offline/);
   assert.match($('work-rows').innerHTML,/data-record="A"/);
-  await $('work-analyze').onclick();assert.equal(calls.at(-1).args.mode,'update');
+  await $('work-analyze').onclick();assert.equal(calls.at(-1).args.mode,'auto');
 });
 
 test('analysis status shows measured phase and elapsed time, then the successful duration',async t=>{
@@ -49,6 +49,13 @@ test('analysis status shows measured phase and elapsed time, then the successful
   await ui.update();assert.match($('work-analysis-status').textContent,/上次分析完成，用时 47.2 秒/);
   data.analysis={state:'running',phase:'collect',elapsedMs:300};await ui.update();
   assert.match($('work-analysis-status').textContent,/收集分析材料 · 已用 0.3 秒/);
+});
+
+test('Agent-maintained maps label CLI duration as saving rather than model analysis',async t=>{
+  const data={...sample(),initialized:true,analysis:{state:'idle',lastRun:{state:'idle',execution:'agent-save',elapsedMs:500}}};
+  const {ui,$}=mount(t,async()=>data);await ui.update();
+  assert.match($('work-analysis-status').textContent,/上次保存完成（不含 Agent 分析）/);
+  assert.doesNotMatch($('work-analysis-status').textContent,/上次分析完成/);
 });
 
 test('idle polling uses lightweight status and reloads external work records every fifteen seconds',async t=>{
@@ -99,7 +106,7 @@ test('pending manual analysis suppresses status polling and old repository polls
   setCall(()=>new Promise(r=>{resolve=r;}));const oldPoll=ui.poll();
   ui.reset();setCall(async()=>({...sample(),initialized:true,analysis:{state:'idle'}}));await ui.update();
   resolve({state:'running',phase:'analysis'});await oldPoll;
-  assert.equal($('work-analyze').disabled,false);assert.equal($('work-analyze').textContent,'更新分析');
+  assert.equal($('work-analyze').disabled,false);assert.equal($('work-analyze').textContent,'更新工作地图');
 });
 
 test('an old analysis response cannot alter the newly selected repository',async t=>{
@@ -108,16 +115,7 @@ test('an old analysis response cannot alter the newly selected repository',async
   setCall(()=>new Promise(r=>resolve=r));const pending=$('work-analyze').onclick();
   ui.reset();setCall(async()=>({...sample(),initialized:true}));await ui.update();
   resolve({state:'running'});await pending;
-  assert.equal($('work-analyze').textContent,'更新分析');assert.equal($('work-analyze').disabled,false);
-});
-
-test('a failed full refresh clears stale analysis progress and disables analysis until records recover',async t=>{
-  const {ui,$,setCall}=mount(t,async()=>({...sample(),initialized:true,analysis:{state:'running',phase:'analysis',elapsedMs:2000}}));
-  await ui.update();assert.match($('work-analysis-status').textContent,/正在分析/);
-  setCall(async()=>{throw Error('read failed');});await ui.update();
-  assert.equal($('work-analysis-status').textContent,'');assert.equal($('work-analyze').disabled,true);
-  setCall(async()=>({...sample(),initialized:true,analysis:{state:'idle'}}));await ui.update();
-  assert.equal($('work-analyze').disabled,false);assert.equal($('work-analyze').textContent,'更新分析');
+  assert.equal($('work-analyze').textContent,'更新工作地图');assert.equal($('work-analyze').disabled,false);
 });
 
 test('old repository responses and failed refreshes cannot retain previous evidence',async t=>{
@@ -198,4 +196,43 @@ test('detail resizing is bounded and supports pointer and keyboard adjustments',
   handle.onkeydown({key:'Home',preventDefault(){}});assert.equal($('work-detail').style.height,'140px');
   handle.onpointerdown({button:0,clientY:400,preventDefault(){}});handle.onpointermove({clientY:-500});assert.equal($('work-detail').style.height,'360px');handle.onpointerup();
   handle.onpointermove({clientY:1000});assert.equal($('work-detail').style.height,'360px');
+});
+
+test('filter feedback separates ancestor context and excludes unassigned progress',async t=>{
+  const data=sample();data.works.push({id:'UNASSIGNED',title:'待归类提交',status:'待开始'});
+  const {ui,$}=mount(t,async()=>data);await ui.update();
+  assert.match($('work-count').textContent,/仓库总计 2 条动线/);
+  $('work-filter').onchange({target:{value:'已完成'}});
+  assert.match($('work-count').textContent,/匹配 1 条动线 · 1 项/);
+  assert.match($('work-rows').innerHTML,/work-context/);assert.match($('work-rows').innerHTML,/所属工作/);
+  $('work-filter').onchange({target:{value:'待开始'}});
+  assert.doesNotMatch($('work-rows').innerHTML,/data-record="UNASSIGNED"/);
+});
+
+test('parent outcomes include nested sources independently of filters and deduplicate within source',async t=>{
+  const data=sample();data.works[0].outcomes=['本层成果'];
+  data.works.push({id:'A3',parentId:'A2',title:'嵌套来源',status:'进行中',outcomes:['相同成果','相同成果']});
+  data.works[2].outcomes.push('相同成果');
+  const {ui,$,click}=mount(t,async()=>data);await ui.update();
+  $('work-filter').onchange({target:{value:'已完成'}});await click('record','A');
+  assert.match($('work-detail').innerHTML,/本层成果/);assert.match($('work-detail').innerHTML,/来自子项：嵌套来源/);
+  assert.equal(($('work-detail').innerHTML.match(/<li>相同成果<\/li>/g)||[]).length,2);
+});
+
+test('unassigned progress explains classification without work outcome claims',async t=>{
+  const data=sample();data.works.push({id:'UNASSIGNED',title:'待归类提交',status:'待归类'});
+  data.records.push({workId:'UNASSIGNED',hash:'c1234567890',title:'unowned'});
+  const {ui,$,click}=mount(t,async()=>data);await ui.update();await click('record','UNASSIGNED');
+  const html=$('work-detail').innerHTML;
+  assert.match(html,/归类说明/);assert.match(html,/当前加载范围内有 1 个提交/);assert.match(html,/请 Agent 核对提交归属后更新工作记录/);
+  assert.doesNotMatch(html,/<h3>成果|尚未记录具体成果|问题与边界|当前进展/);
+});
+
+test('a failed full refresh clears stale analysis progress and disables analysis until records recover',async t=>{
+  const {ui,$,setCall}=mount(t,async()=>({...sample(),initialized:true,analysis:{state:'running',phase:'analysis',elapsedMs:2000}}));
+  await ui.update();assert.match($('work-analysis-status').textContent,/正在分析/);
+  setCall(async()=>{throw Error('read failed');});await ui.update();
+  assert.equal($('work-analysis-status').textContent,'');assert.equal($('work-analyze').disabled,true);
+  setCall(async()=>({...sample(),initialized:true,analysis:{state:'idle'}}));await ui.update();
+  assert.equal($('work-analyze').disabled,false);assert.equal($('work-analyze').textContent,'更新工作地图');
 });

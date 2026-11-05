@@ -2,9 +2,26 @@
 
 ## 准备环境
 
-需要 Node.js 22+、npm、Git 和 Codex 桌面应用。插件执行主机的 PATH 必须能找到 `node` 和 `git`。当前实测平台为 Windows；真实桌面宿主的插件安装、缓存目录加载和聊天切换流程仍需验证。
+运行 skill 需要 Node.js 22+ 和 Git；从源码重新构建还需要 npm，插件接入另需 Codex 桌面应用。插件执行主机的 PATH 必须能找到 `node` 和 `git`。当前实测平台为 Windows；真实桌面宿主的插件安装、缓存目录加载和聊天切换流程仍需验证。
 
 尚未配置插件时，可先按 [README](../README.md#开始使用)直接启动，检查面板是否能读取目标仓库。
+
+## 独立 skill
+
+独立 skill 需要 Node.js 22+ 和 Git，不要求配置 MCP 或安装 Codex 插件。当前以源码构建和目录分发为准，尚未提供预构建下载地址。
+
+仓库的 `skills/workgraph/` 包含 `SKILL.md`、`references/` 和随包交付的 `scripts/`，可整体安装，运行时不需要源码、npm 或 node_modules。不要仅复制 SKILL.md。修改实现后，在源码目录运行 `npm install`、`npm run build` 重新生成并同步交付的运行文件；插件构建也复用这份完整 skill。
+
+将整个 `skills/workgraph` 复制到 Agent 的技能目录：Codex 项目级为目标项目的 `.agents/skills/workgraph`，个人级为 `~/.agents/skills/workgraph`。存在同名目录时先核对并保留已有内容。需要独立分发时运行：
+
+```powershell
+node scripts/package-skill.mjs "D:\release\workgraph"
+node "D:\release\workgraph\scripts\workgraph.mjs" doctor
+```
+
+输出目录必须尚不存在，且父目录已存在。打包目录可迁移到其他位置；安装后按 Agent 的技能发现机制重新加载，并要求「更新当前项目的工作地图」。首次建立与增量更新自动选择；要求「打开工作地图」只展示。独立页面不提供 Git 管理入口。
+
+插件构建时复制同一份 skill，因此可以选择独立 skill 或插件安装方式，避免重复安装同名 skill。移除 skill 不会删除目标仓库的 `.workgraph/state.json`。本实现不修改用户全局配置，也不自动安装或更新技能。
 
 ## 从源码安装本地插件
 
@@ -19,7 +36,7 @@
 
 2. 按下方源码示例布局，在本仓库的 `.agents/plugins/marketplace.json` 保存完整配置；目录不存在时先创建。已有配置时合并插件条目，保留其他内容。配置预期让 `./plugins/workgraph` 指向仓库内插件目录；本地 marketplace 的发现与相对路径解析尚未在真实桌面宿主中实测。
 3. 重启 Codex，在插件目录选择「WorkGraph · 本地开发」并安装。入口的实际显示取决于宿主版本。
-4. 在目标仓库的聊天中输入「打开当前仓库的 WorkGraph，显示所有 Worktree」。技能会把仓库绝对路径传给 `workgraph_open`。
+4. 在目标仓库的聊天中输入「打开当前仓库的 WorkGraph，显示所有 Worktree」。插件工具 `workgraph_open` 接受仓库绝对路径。统一 skill 通过独立 CLI 打开工作地图；Git 管理仍使用插件入口。
 
 源码示例布局：
 
@@ -96,7 +113,7 @@ D:\release\
 
 - `plugin.json`：插件标识 `workgraph`、版本、描述和展示名称 WorkGraph。
 - `mcp.json`：启动打包后的 Node.js 服务，使用 `${PLUGIN_ROOT}` 定位安装目录。
-- `skills/workgraph/SKILL.md`：聊天中打开面板的使用说明。
+- 根 `skills/workgraph/`：统一 skill、内部规范和独立 CLI 的交付目录；构建时复制到插件的 `skills/workgraph/`。
 - `.agents/plugins/marketplace.json`：本地开发时让宿主定位 `plugins/workgraph` 的目录配置，不属于插件分发包。
 
 项目只维护上述一套清单，不生成旧版 `.mcp.json`，也不提供旧工具名的别名。旧版安装需移除并按当前配置重新安装。环境变量使用 `WORKGRAPH_REPO`；偏好和界面布局使用 WorkGraph 的存储名称，不自动读取旧版数据。

@@ -72,8 +72,8 @@ export function createMcpServer(html, { contextOptions = {}, analysisOptions = {
     title: '查看工作分析状态', description: 'Read local WorkGraph analysis progress.', inputSchema: repo, annotations, _meta:{ui:{resourceUri:uri,visibility:['app','model']}},
   }, safely(({repositoryPath})=>analysis.status(requiredRepo(repositoryPath))));
   registerAppTool(mcp, 'workgraph_work_analyze', {
-    title: '初始化或更新工作记录', description: 'Explicitly initialize the repository and enable automatic updates, or retry analysis. Runs local Codex read-only and saves validated records in .workgraph/. Uses local Codex authentication and model usage.',
-    inputSchema: {...repo, mode:z.enum(['initialize','update']).default('initialize')},
+    title: '初始化或更新工作记录', description: 'Update the work map only when requested by the user. Automatically choose initial analysis or incremental update. Never enable background maintenance. Runs local Codex read-only and saves validated records in .workgraph/. Uses local Codex authentication and model usage.',
+    inputSchema: {...repo, mode:z.enum(['auto','initialize','update']).default('auto')},
     annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
     _meta:{ui:{resourceUri:uri,visibility:['app','model']}},
   }, safely(({repositoryPath,mode})=>analysis.start(requiredRepo(repositoryPath),mode)));

@@ -20,7 +20,7 @@ export async function readWorkGraph(repositoryPath) {
     records.push({hash,time:fields[i+1],title:fields[i+2],workId:owner?.id || 'UNASSIGNED'});
   }
   const hasMore=records.length>300; records.length=Math.min(records.length,300);
-  if(records.some(r=>r.workId==='UNASSIGNED')) works.push({id:'UNASSIGNED',title:'未关联的提交',status:'待开始',next:'核对提交归属',summary:'尚未关联到工作项的历史。',commits:[]});
+  if(records.some(r=>r.workId==='UNASSIGNED')) works.push({id:'UNASSIGNED',title:'待归类提交',status:'待归类',next:'核对提交归属',summary:'尚未关联到工作项的历史。',commits:[]});
   const dirty=bare?[]:parseStatus(await git(root,['status','--porcelain=v1','-z','--untracked-files=all'])).files;
   return {repository:{path:root,name:path.basename(root)},head,works,records,dirty,hasMore,scope:'HEAD 最近 300 条提交',source,initialized:source === '.workgraph/state.json + Git'};
 }

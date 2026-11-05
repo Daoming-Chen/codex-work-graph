@@ -12,7 +12,7 @@
 | `src/remote-actions.mjs`、`src/history-actions.mjs` | 远程引用、历史和工作区写操作校验 |
 | `src/review.mjs` | 元数据、历史／工作目录比较、文件内容 |
 | `src/work-graph.mjs`、`src/ui/work-live.js` | 工作记录读取、提交归属、工作轨道和实际差异展示 |
-| `src/work-analysis.mjs`、`src/work-context.mjs` | 有界分析材料、只读 Codex 调用、增量合并、自动维护与阶段计时 |
+| `src/work-analysis.mjs`、`src/work-context.mjs` | 有界分析材料、显式分析、增量合并、可靠保存与阶段计时 |
 | `src/preferences.mjs` | 仓库配置与审阅进度持久化 |
 | `src/workspace-context.mjs`、`src/codex-context.mjs`、`src/ui/workspace.js` | 本机聊天／项目与 MCP roots 解析、仓库切换与旧请求失效 |
 | `src/panel-manager.mjs` | HTTP 服务复用、容量与空闲回收 |
@@ -67,4 +67,6 @@ Git 使用参数数组和 literal pathspec；目标 Worktree 校验 common dir�
 
 `src/work-graph.mjs` 优先读取仓库 `.workgraph/state.json`，兼容旧 `.workgraph.json`，并读取 HEAD 最近 300 条提交，按完整 SHA 或 `Work-Item` 标识关联工作。HTTP `/api/work_graph` 与 App 工具 `workgraph_work_graph` 共用读取逻辑。`src/ui/work-live.js` 使用现有仓库请求隔离，切换时清空记录并丢弃旧响应。工作项状态来自记录，验证和用户接受不由提交推断；范围与限制见 [WorkGraph 使用说明](work-graph.md)。
 
-`src/work-analysis.mjs` 加载插件内置初始化／更新 Skill，将 `src/work-context.mjs` 预收集的有界材料交给本机 Codex 只读分析。初始化成功后按代码指纹检测变化并调度增量分析，结果校验后原子保存，跨进程锁避免同一工作区并发分析。面板显示实际阶段与耗时，运行目录保留最近一次计时摘要。状态轮询与定时检测共享检查间隔和正在执行的扫描，避免每次查询重复计算指纹。自动维护仅在本地服务运行期间执行，没有接入聊天结束事件。材料边界、具体时序、重试和存储约束见 [WorkGraph 使用说明](work-graph.md)。
+`skills/workgraph` 是唯一对外 skill，构建生成独立 CLI 与工作地图页面。`src/workgraph-cli.mjs` 提供 `context`、`save`、`status`、`open` 和 `doctor`；Agent 在当前聊天中组织工作记录，通过 CLI 共用校验与原子保存。内部首次建立／增量更新规范位于 skill 的 references，不作为独立 skill 发现。插件保留 Git 界面及显式分析入口，调用本机 Codex 只读分析；默认自动判断流程，但不自动启动分析。
+
+`src/work-analysis.mjs` 负责跨进程分析锁、代码及记录复核、结果合并、原子保存和计时。状态查询、打开面板、代码变化和旧自动化标记均不触发分析。Git 写操作继续由插件界面调用，未加入 skill。材料与存储边界见 [WorkGraph 使用说明](work-graph.md)。

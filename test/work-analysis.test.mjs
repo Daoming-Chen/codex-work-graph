@@ -32,23 +32,23 @@ test('initialization migrates existing work, persists baseline and avoids self-t
   assert.equal((await service.wait(root)).state,'idle');
   const data=await readWorkGraph(root);assert.equal(data.initialized,true);assert.equal(data.works[0].id,work.id);
   const record=JSON.parse(await readFile(path.join(root,'.workgraph/state.json'),'utf8'));
-  assert.equal(record.automation.enabled,true);assert.equal(record.analysis.fingerprint,before.fingerprint);
+  assert.equal(record.automation.enabled,false);assert.equal(record.analysis.fingerprint,before.fingerprint);
   assert.equal((await workFingerprint(root)).fingerprint,before.fingerprint);
   await service.status(root);assert.equal(calls,1);
 });
 
-test('automatic maintenance debounces changes including untracked content and survives reopen',async t=>{
-  let time=100000,calls=0;
-  const runner=async()=>{calls++;return {version:1,works:[work]};};
-  const {root,service}=await fixture(t,runner,{now:()=>time,settleMs:30,scanIntervalMs:0});
+test('only explicit requests analyze, including after reopening and code changes',async t=>{
+  const modes=[];
+  const runner=async({mode})=>{modes.push(mode);return {version:1,works:[work]};};
+  const {root,service}=await fixture(t,runner);
+  await service.status(root);await service.wait(root);assert.deepEqual(modes,[]);
   await service.start(root);await service.wait(root);
   await writeFile(path.join(root,'code.txt'),'changed');
-  await service.status(root);await service.wait(root);assert.equal(calls,1);
-  time+=31;await service.status(root);await service.wait(root);assert.equal(calls,2);
+  await service.status(root);await service.wait(root);assert.deepEqual(modes,['initialize']);
+  await service.start(root);await service.wait(root);assert.deepEqual(modes,['initialize','update']);
   await service.close();
-  const reopened=createWorkAnalysis({runner,now:()=>time,settleMs:30,scanIntervalMs:0,intervalMs:1e8});t.after(()=>reopened.close());
-  await writeFile(path.join(root,'code.txt'),'changed again');
-  await reopened.status(root);await reopened.wait(root);time+=31;await reopened.status(root);await reopened.wait(root);assert.equal(calls,3);
+  const reopened=createWorkAnalysis({runner});t.after(()=>reopened.close());
+  await reopened.status(root);await reopened.wait(root);assert.equal(modes.length,2);
 });
 
 test('failed, invalid and stale analyses preserve the last valid record',async t=>{
@@ -71,13 +71,13 @@ test('multiple transports cannot run analysis concurrently in the same working d
   release();assert.equal((await service.wait(root)).state,'idle');
 });
 
-test('unchanged failure is retried with backoff and stops after three attempts',async t=>{
-  let time=1e6,calls=0,fail=false;
-  const {root,service}=await fixture(t,async()=>{calls++;if(fail)throw Error('offline');return {version:1,works:[work]};},{now:()=>time,settleMs:0,scanIntervalMs:0});
-  await service.start(root);await service.wait(root);fail=true;
-  await writeFile(path.join(root,'code.txt'),'new');
-  for(let i=0;i<5;i++){await service.status(root);await service.wait(root);time+=60001;}
-  assert.equal(calls,4);
+test('failed analyses are never retried by status reads',async t=>{
+  let calls=0;
+  const {root,service}=await fixture(t,async()=>{calls++;throw Error('offline');});
+  await service.start(root);await service.wait(root);
+  for(let i=0;i<5;i++){await service.status(root);await service.wait(root);}
+  assert.equal(calls,1);
+  await service.start(root);await service.wait(root);assert.equal(calls,2);
 });
 
 test('fingerprint notices branch switches, staged edits and tracked changes',async t=>{

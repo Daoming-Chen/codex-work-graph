@@ -21,6 +21,45 @@ npm run demo
 
 演示会在 `.test-output/` 创建独立仓库，不修改本项目历史。面板中的写操作会改变演示仓库。
 
+## 本地快速开发
+
+日常开发直接运行仓库源码；插件声明、技能和安装流程的验收使用[安装与打包](docs/install-lifecycle.md)中的完整安装流程。源码入口不会更新已安装的插件缓存。
+
+### 本地面板预览
+
+在仓库目录执行，`--repo` 指定面板要查看的仓库：
+
+```powershell
+npm run build
+npm start -- --repo "D:\MyGithub\codex-git-graph"
+```
+
+打开终端输出的完整面板链接。源码目录可以沿用旧名称 `codex-git-graph`，插件名称为 `workgraph`。测试 Git 写操作时，优先使用上方的 `npm run demo` 创建独立演示仓库。
+
+当前没有自动监听或热更新。修改界面后重新运行 `npm run build`；修改服务端后需要重启服务。为加载最新界面，构建后也应重启服务，并打开新输出的链接。旧链接可能失效。
+
+### 在 Codex 中连接源码
+
+1. 安装依赖并运行 `npm run build`，确保界面文件已生成。
+2. 备份用户配置 `~/.codex/config.toml`。Windows 默认路径为 `C:\Users\<用户名>\.codex\config.toml`。
+3. 将以下配置合并到文件中。将 `command` 改为本机 Node.js 22+ 的绝对路径，将 `args` 和 `cwd` 改为本机源码目录。已有 `work_graph_dev` 条目时修改原条目，避免重复定义。
+
+   ```toml
+   [mcp_servers.work_graph_dev]
+   command = 'C:\Program Files\nodejs\node.exe'
+   args = ['D:\MyGithub\codex-git-graph\src\server.mjs']
+   cwd = 'D:\MyGithub\codex-git-graph'
+   ```
+
+4. 若已安装 WorkGraph 插件，开发期间停用该插件，避免同名工具重复出现。保留其他插件和 MCP 配置。
+5. 保存配置后重启 Codex，在新聊天中明确要求「使用 work_graph_dev 打开当前仓库的 WorkGraph」，并提供目标仓库的绝对路径。确认工具来自 `work_graph_dev`，面板显示正确仓库。
+
+这个 MCP 入口直接运行 `src/server.mjs`，界面读取仓库内构建生成的 `plugins/workgraph/dist/graph.html`。不要给 stdio MCP 入口添加 `--http`，也不要默认固定 `WORKGRAPH_REPO`，以便按聊天传入的路径打开不同仓库。配置字段见 [Codex MCP 文档](https://learn.chatgpt.com/docs/extend/mcp#stdio-servers)。
+
+修改服务端或重新构建界面后，需要让 Codex 重新连接 MCP 服务，再重新打开面板。如果宿主没有可用的重新连接入口，重启 Codex。源码连接的握手验证不能代替桌面面板和聊天切换验收。
+
+需要恢复已安装插件时，先将 `[mcp_servers.work_graph_dev]` 下的 `enabled` 设为 `false`，再启用所需插件并重启 Codex。插件声明、技能、安装缓存和分发包的变化仍需通过完整安装流程验收。
+
 ## 修改与验证
 
 保持改动范围清晰，说明解决的问题、行为变化和实际执行的验证。涉及 Git 写操作时，测试应覆盖目标校验、仓库状态变化、失败与冲突路径；不要用开发仓库验证破坏性操作。

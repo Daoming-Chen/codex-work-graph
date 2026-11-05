@@ -1,4 +1,7 @@
 node_modules/
 plugins/workgraph/dist/
+plugins/workgraph/skills/workgraph/
+plugins/codex-work-graph/
 .test-output/
+.archify/
 *.log

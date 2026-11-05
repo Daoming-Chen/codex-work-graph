@@ -7,7 +7,7 @@ import { filesDetail, fileDiff, resolveRef, prepareAction, executeAction } from 
 import { repositoryInfo, commitInfo, refInfo, reviewFiles, reviewDiff, fileContent } from './review.mjs';
 import { readPreferences, savePreferences } from './preferences.mjs';
 
-export async function startHttp({ repositoryPath, html, port = 0, now = Date.now, analysisOptions = {} }) {
+export async function startHttp({ repositoryPath, html, port = 0, now = Date.now, analysisOptions = {}, workMapOnly = false }) {
   const { root } = await resolveRepository(repositoryPath);
   const analysis = createWorkAnalysis(analysisOptions);
   const token = randomBytes(32).toString('hex');
@@ -30,6 +30,9 @@ export async function startHttp({ repositoryPath, html, port = 0, now = Date.now
     const supplied = Buffer.from((req.headers.authorization || '').replace(/^Bearer /, ''));
     if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token))) {
       res.writeHead(401).end('Unauthorized'); return;
+    }
+    if(workMapOnly&&!['/api/work_graph','/api/work_status','/api/commit'].includes(url.pathname)) {
+      res.writeHead(404,{'Content-Type':'application/json'}).end(JSON.stringify({error:'独立工作地图不提供此接口，请使用插件 Git 界面。'}));return;
     }
     lastActivity = now();
     activeRequests++;

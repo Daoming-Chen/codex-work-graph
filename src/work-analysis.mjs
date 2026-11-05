@@ -32,7 +32,7 @@ async function loadLastRun(root) {
       const duration=value.durationsMs[phase];
       if(duration!==undefined){if(!Number.isFinite(duration)||duration<0)return null;durationsMs[phase]=duration;}
     }
-    return {version:1,mode:value.mode,state:value.state,startedAt:value.startedAt,completedAt:value.completedAt,elapsedMs:value.elapsedMs,durationsMs,failedPhase:phases.includes(value.failedPhase)?value.failedPhase:null};
+    return {version:1,mode:value.mode,state:value.state,startedAt:value.startedAt,completedAt:value.completedAt,elapsedMs:value.elapsedMs,durationsMs,failedPhase:phases.includes(value.failedPhase)?value.failedPhase:null,...(value.execution==='agent-save'?{execution:'agent-save'}:{})};
   } catch {return null;}
 }
 
@@ -84,12 +84,16 @@ export function mergeAnalysisResult(previous,result,mode) {
 }
 
 async function skillText(mode) {
-  const name = mode === 'initialize' ? 'workgraph-init' : 'workgraph-update';
-  for (const base of [new URL('../plugins/workgraph/skills/', import.meta.url), new URL('../plugins/codex-work-graph/skills/', import.meta.url), new URL('../plugins/codex-git-graph/skills/', import.meta.url), new URL('../skills/', import.meta.url)]) {
-    try { return await readFile(new URL(`${name}/SKILL.md`, base), 'utf8'); }
+  const name = mode === 'initialize' ? 'initialize' : 'update';
+  for (const base of [new URL('../skills/workgraph/references/', import.meta.url), new URL('../references/', import.meta.url)]) {
+    try { return await readFile(new URL(`${name}.md`, base), 'utf8'); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
-  throw new Error('缺少 WorkGraph 分析 Skill，请重新构建插件。');
+  throw new Error('缺少 WorkGraph 分析规范，请重新构建。');
+}
+
+export async function resolveAnalysisMode(root) {
+  return (await loadWorkRecord(root)).source === '.workgraph/state.json + Git' ? 'update' : 'initialize';
 }
 
 export async function analysisPrompt({root,mode,previous,baseline,context}) {
@@ -141,13 +145,13 @@ async function safeDirectory(root) {
 }
 
 // A process-wide service is used per transport; a filesystem lease serializes transports.
-export function createWorkAnalysis({ runner=runCodexAnalysis, fingerprint=workFingerprint, collector=collectWorkContext, now=Date.now, intervalMs=15000, scanIntervalMs=15000, settleMs=30000 }={}) {
+export function createWorkAnalysis({ runner=runCodexAnalysis, fingerprint=workFingerprint, collector=collectWorkContext, now=Date.now, execution }={}) {
   const entries=new Map();let disposed=false;
   async function entry(input) {
     const {root,bare}=await resolveRepository(input);
     if(!entries.has(root)) {
       const lastRun=bare?null:await loadLastRun(root);
-      if(!entries.has(root))entries.set(root,{root,bare,state:bare?'unavailable':'idle',error:bare?'裸仓库不能初始化工作记录。':null,pending:null,failures:0,lastRun});
+      if(!entries.has(root))entries.set(root,{root,bare,state:bare?'unavailable':'idle',error:bare?'裸仓库不能初始化工作记录。':null,pending:null,lastRun});
     }
     return entries.get(root);
   }
@@ -194,7 +198,7 @@ export function createWorkAnalysis({ runner=runCodexAnalysis, fingerprint=workFi
       if(previous.works.some(w=>!ids.has(w.id)))throw new Error('分析结果丢失已有工作项，原记录已保留。');
       phase(e,'recheck');
       const current=await fingerprint(e.root);
-      if(current.fingerprint!==baseline.fingerprint)throw new Error('分析期间代码发生变化，等待稳定后重新分析。');
+      if(current.fingerprint!==baseline.fingerprint)throw new Error('分析期间代码发生变化，请重新请求更新。');
       if(digest(JSON.stringify((await loadWorkRecord(e.root)).manifest))!==digest(JSON.stringify(previous)))throw new Error('工作记录已被其他进程修改，原记录已保留。');
       phase(e,'save');
       const updatedAt=new Date(now()).toISOString();
@@ -204,7 +208,7 @@ export function createWorkAnalysis({ runner=runCodexAnalysis, fingerprint=workFi
         work.updatedAt=old&&comparable(old)===comparable(work)?old.updatedAt:updatedAt;
       }
       const scope=context.scope==='incremental'?'上次分析基线之后的提交与相关文件变化':'有界项目地图与 HEAD 最近最多 300 条提交';
-      const record={version:1,works,automation:{enabled:true},analysis:{...baseline,updatedAt,scope}};
+      const record={version:1,works,automation:{enabled:false},analysis:{...baseline,updatedAt,scope}};
       const worktree=normalizeWorktreeSnapshot(context.worktree);
       if(worktree)record.analysis.worktree=worktree;
       let payload=JSON.stringify(record,null,2)+'\n';
@@ -219,17 +223,18 @@ export function createWorkAnalysis({ runner=runCodexAnalysis, fingerprint=workFi
       const temporary=path.join(directory,`state-${randomUUID()}.tmp`);
       try { await writeFile(temporary,payload,{flag:'wx'});await rename(temporary,path.join(directory,'state.json')); }
       finally { await unlink(temporary).catch(()=>{}); }
-      e.state='idle';e.error=null;e.failures=0;e.candidate=null;
-    } catch(error) {e.state='failed';e.error=error.message;e.failures++;e.retryAt=now()+60000;}
+      e.state='idle';e.error=null;
+    } catch(error) {e.state='failed';e.error=error.message;}
     finally {
       const failedPhase=e.state==='failed'?e.phase:null;
       phase(e,null);e.completedMs=now();e.completedAt=timestamp(e.completedMs);
       e.lastRun={version:1,mode,state:e.state,startedAt:e.startedAt,completedAt:e.completedAt,elapsedMs:Math.max(0,e.completedMs-e.startedMs),durationsMs:{...e.durationsMs},failedPhase};
+      if(execution==='agent-save')e.lastRun.execution='agent-save';
       // A diagnostic write failure must never invalidate a saved work record. Only
       // the lease owner writes, so a competing transport cannot replace its report.
       if(lease)await saveLastRun(directory,e.lastRun).catch(()=>{});
       if(lease){await lease.close();await unlink(path.join(directory,'runtime/analysis.lock')).catch(()=>{});}
-      e.nextCheckAt=now()+scanIntervalMs;e.pending=null;e.controller=null;
+      e.pending=null;e.controller=null;
     }
   }
   function launch(e,mode) {
@@ -237,38 +242,19 @@ export function createWorkAnalysis({ runner=runCodexAnalysis, fingerprint=workFi
     e.state='running';e.error=null;e.startedMs=now();e.startedAt=timestamp(e.startedMs);e.completedAt=null;e.completedMs=null;e.durationsMs={};e.phase=null;phase(e,'prepare');
     e.pending=perform(e,mode);
   }
-  function tick(e) {
-    if(e.checking)return e.checking;
-    if(disposed||e.bare||e.pending||now()<(e.nextCheckAt??-Infinity))return;
-    // The scheduler and UI share this deadline and promise. A status request
-    // starts a due check without waiting for Git or hashing file contents.
-    e.nextCheckAt=now()+scanIntervalMs;
-    e.checking=(async()=>{
-      try {
-        const {manifest,source}=await loadWorkRecord(e.root);
-        if(disposed||source!=='.workgraph/state.json + Git'||!manifest.automation?.enabled)return;
-        const current=await fingerprint(e.root);
-        if(disposed)return;
-        if(current.fingerprint===manifest.analysis?.fingerprint){e.candidate=null;return;}
-        if(e.candidate!==current.fingerprint){e.candidate=current.fingerprint;e.since=now();e.failures=0;}
-        if(now()-e.since>=settleMs&&e.failures<3&&now()>=(e.retryAt||0))launch(e,'update');
-      } catch(error){e.state='failed';e.error=error.message;}
-    })().finally(()=>{e.checking=null;});
-    return e.checking;
-  }
-  const timer=setInterval(()=>{for(const e of entries.values())void tick(e);},intervalMs);timer.unref();
   return {
-    async status(input){const e=await entry(input);void tick(e);return view(e);},
-    async start(input,mode='initialize'){
+    async status(input){const e=await entry(input);return view(e);},
+    async start(input,mode='auto'){
       if(disposed)throw new Error('服务已关闭。');
-      if(!['initialize','update'].includes(mode))throw new Error('分析模式无效。');
+      if(!['auto','initialize','update'].includes(mode))throw new Error('分析模式无效。');
       const e=await entry(input);if(e.bare)throw new Error('裸仓库不能初始化工作记录。');
-      await e.checking;
+      if(e.pending)return view(e);
+      if(mode==='auto')mode=await resolveAnalysisMode(e.root);
       if(disposed)throw new Error('服务已关闭。');
       if(mode==='update'&&(await loadWorkRecord(e.root)).source!=='.workgraph/state.json + Git')throw new Error('请先初始化当前仓库。');
       launch(e,mode);return view(e);
     },
-    async wait(input){const e=await entry(input);await e.checking;await e.pending;return view(e);},
-    async close(){disposed=true;clearInterval(timer);for(const e of entries.values())e.controller?.abort();await Promise.all([...entries.values()].map(async e=>{await e.checking;await e.pending;}));},
+    async wait(input){const e=await entry(input);await e.pending;return view(e);},
+    async close(){disposed=true;for(const e of entries.values())e.controller?.abort();await Promise.all([...entries.values()].map(async e=>{await e.pending;}));},
   };
 }
