@@ -7,6 +7,6 @@ const fixture=previous?.fixture || await createFixture();let parent=fixture.firs
 const tree=(await git(fixture.root,['rev-parse',fixture.first+'^{tree}'])).trim();
 for(let i=0;i<40;i++)parent=(await git(fixture.root,['commit-tree',tree,'-p',parent,'-m',`refine: history navigation checkpoint ${i+1}`], { env: { ...process.env, GIT_AUTHOR_DATE: `${1600000000+i} +0000`, GIT_COMMITTER_DATE: `${1600000000+i} +0000` } })).trim();
 await git(fixture.root,['update-ref','refs/heads/codex/history',parent]);
-const html=await readFile(new URL('../plugins/codex-git-graph/dist/graph.html',import.meta.url),'utf8');
+const html=await readFile(new URL('../plugins/codex-work-graph/dist/graph.html',import.meta.url),'utf8');
 const panel=await startHttp({repositoryPath:fixture.root,html,devHarness:true});
 const info={url:panel.url,origin:panel.origin,pid:process.pid,fixture};await writeFile(new URL('../.test-output/v2-preview.json',import.meta.url),JSON.stringify(info,null,2));console.log(info);

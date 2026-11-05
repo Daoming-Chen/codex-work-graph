@@ -15,7 +15,7 @@ test('portable distribution launches after relocation outside the source checkou
   await rename(packaged, relocated);
   await assert.rejects(access(path.join(relocated, '.mcp.json')), { code: 'ENOENT' });
   const manifest = JSON.parse(await readFile(path.join(relocated, 'plugin.json'), 'utf8'));
-  assert.equal(manifest.name, 'codex-git-graph');
+  assert.equal(manifest.name, 'codex-work-graph');
   const portable = JSON.parse(await readFile(path.join(relocated, 'mcp.json'), 'utf8'));
   assert.equal(portable.mcpServers.git_graph.command, 'node');
   assert.deepEqual(portable.mcpServers.git_graph.args, ['${PLUGIN_ROOT}/dist/server.mjs']);
@@ -31,6 +31,7 @@ test('portable distribution launches after relocation outside the source checkou
     transport.stderr?.on('data', chunk => { diagnostics += chunk; });
     t.after(() => client.close());
     await client.connect(transport);
+    assert.equal(client.getServerVersion().name, 'codex-work-graph');
     assert.ok((await client.listTools()).tools.some(tool => tool.name === 'git_graph_open'), diagnostics);
     const ui = await client.readResource({ uri: 'ui://git-graph/panel.html' });
     assert.match(ui.contents[0].text, /<!doctype html>/i);

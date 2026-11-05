@@ -11,10 +11,35 @@ import { startHttp } from '../src/http.mjs';
 import { randomUUID } from 'node:crypto';
 import { git } from '../src/git.mjs';
 
-const expectedTools = ['git_graph_work_graph', 'git_graph_open', 'git_graph_context', 'git_graph_commit', 'git_graph_worktree', 'git_graph_files', 'git_graph_diff', 'git_graph_file_content', 'git_graph_repository_info', 'git_graph_commit_info', 'git_graph_ref_info', 'git_graph_resolve', 'git_graph_prepare', 'git_graph_execute', 'git_graph_preferences', 'git_graph_save_preferences'].sort();
+const expectedTools = ['git_graph_work_analyze', 'git_graph_work_status', 'git_graph_work_graph', 'git_graph_open', 'git_graph_context', 'git_graph_commit', 'git_graph_worktree', 'git_graph_files', 'git_graph_diff', 'git_graph_file_content', 'git_graph_repository_info', 'git_graph_commit_info', 'git_graph_ref_info', 'git_graph_resolve', 'git_graph_prepare', 'git_graph_execute', 'git_graph_preferences', 'git_graph_save_preferences'].sort();
 
 let f;
 before(async () => { f = await createFixture(); });
+
+test('HTTP initialization requires authenticated POST and publishes validated analysis',async t=>{
+  const fixture=await createFixture();let calls=0;
+  const panel=await startHttp({repositoryPath:fixture.root,html:'test',analysisOptions:{runner:async()=>{calls++;return {version:1,works:[{id:'WG-INIT',title:'Existing project',status:'进行中',commits:[]}]};}}});
+  t.after(()=>panel.close());
+  const endpoint=panel.origin+'/api/work_analyze',headers={Authorization:`Bearer ${panel.token}`,'Content-Type':'application/json'};
+  assert.equal((await fetch(endpoint,{headers})).status,405);
+  assert.equal((await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);
+  assert.equal(calls,0);
+  const start=await (await fetch(endpoint,{method:'POST',headers,body:JSON.stringify({mode:'initialize'})})).json();
+  assert.equal(start.state,'running');
+  let status;
+  for(let i=0;i<100;i++) {
+    status=await (await fetch(panel.origin+'/api/work_status',{headers})).json();
+    if(status.state!=='running')break;
+    await new Promise(r=>setTimeout(r,25));
+  }
+  assert.equal(status.state,'idle',status.error);
+  assert.equal(status.phase,null);
+  assert.equal(status.lastRun.state,'idle');
+  assert.ok(Number.isFinite(status.lastRun.elapsedMs));
+  assert.ok(Number.isFinite(status.lastRun.durationsMs.analysis));
+  const data=await (await fetch(panel.origin+'/api/work_graph',{headers})).json();
+  assert.equal(data.initialized,true);assert.equal(data.works[0].id,'WG-INIT');assert.equal(calls,1);
+});
 test('loopback HTTP requires its token, enforces origin and exposes only the bound repo', async t => {
   const panel = await startHttp({ repositoryPath: f.root, html: '<!doctype html><title>Test</title>' });
   t.after(() => panel.server.close());
@@ -63,7 +88,7 @@ test('MCP advertises thread entrypoint, serves UI and reads real Git data', asyn
   assert.deepEqual(open._meta['openai/ui'].entrypoints, [{ type: 'thread' }]);
   assert.equal(tools.tools.find(t => t.name === 'git_graph_execute').annotations.readOnlyHint, false);
   assert.equal(tools.tools.find(t => t.name === 'git_graph_execute').annotations.idempotentHint, true);
-  assert.ok(tools.tools.filter(t => !['git_graph_execute', 'git_graph_save_preferences'].includes(t.name)).every(t => t.annotations.readOnlyHint));
+  assert.ok(tools.tools.filter(t => !['git_graph_execute', 'git_graph_save_preferences', 'git_graph_work_analyze'].includes(t.name)).every(t => t.annotations.readOnlyHint));
   const preferences = tools.tools.find(t => t.name === 'git_graph_save_preferences');
   assert.deepEqual(preferences.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
   const resources = await client.readResource({ uri: 'ui://git-graph/panel.html' });
@@ -81,7 +106,7 @@ test('MCP advertises thread entrypoint, serves UI and reads real Git data', asyn
   assert.equal(executed.structuredContent.state, 'completed');
 });
 test('built plugin launches independently from source and completes stdio handshake', async t => {
-  const config = JSON.parse(await readFile('plugins/codex-git-graph/.mcp.json', 'utf8'));
+  const config = JSON.parse(await readFile('plugins/codex-work-graph/.mcp.json', 'utf8'));
   const client = new Client({ name: 'packaging-test', version: '1.0.0' });
   const transport = new StdioClientTransport({ ...config.mcpServers.git_graph, stderr: 'pipe' });
   let stderr = ''; transport.stderr?.on('data', chunk => { stderr += chunk; });

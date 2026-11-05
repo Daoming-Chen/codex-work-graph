@@ -1,10 +1,303 @@
 {
   "version": 1,
   "works": [
-    {"id":"WG-LIVE","title":"接入真实项目工作历史","status":"进行中","next":"完善自动记录与恢复","summary":"将本仓库工作项关联到实际提交，提供真实差异和未提交文件状态。","commits":[]},
-    {"id":"WG-VIEW","title":"工作轨道与底部详情","status":"进行中","next":"继续打磨信息密度","summary":"沿用 GitGraph 风格展示工作进展，详情置于底部，关键文字优先。","commits":[]},
-    {"id":"WG-CONTEXT","title":"识别 Codex 仓库上下文","status":"已完成","next":"补充真实宿主兼容验证","summary":"按聊天与项目定位仓库，隔离切换后的过期请求。已完成实现与本地测试。","commits":["effa7cf960823b3d41c10b568d4da29819e28a0f"]},
-    {"id":"WG-DOCS","title":"整理产品方向与使用文档","status":"已完成","next":"随实现更新边界","summary":"记录 WorkGraph 产品方向，整理安装、使用、贡献与架构说明。","commits":["6e597f023a8e5ae1f05c405c8afa84ffe7935e31","0ecd3c6337b1eba1daf2782ed4b9ac1e605c8572"]},
-    {"id":"WG-GIT","title":"构建 Git 操作与审阅基础","status":"已完成","next":"维护回归测试","summary":"实现本地提交图、差异审阅、分支、Worktree 及 Git 操作。","commits":["3c78e6eb5fff64793248e0f678748894a009c31f","f9870da5d7f348ca64603852f11c40902e82e7fd","3ff55fa58aadb60a5c99e0ee29dddd8f178638e8"]}
+    {
+      "id": "WG-AGENT",
+      "title": "Agent 分析、记录与跨会话续接",
+      "status": "进行中",
+      "next": "设计 Agent 工作记录更新接口与再次进入项目时的核对、续接流程。",
+      "summary": "2026-10-28 用户明确：利用 Codex Agent 理解仓库并归纳工作进展，由 WorkGraph 展示结果。本次 Agent 已分析源码、文档与提交，整理七条动线并写入本文件，完成一次实际使用。当前通过文件维护记录；专用 Agent 写入接口、自动触发、恢复点与自动验收尚未实现。用户确认的是方向，不代表实现验收。",
+      "commits": [],
+      "updatedAt": "2026-10-28T03:24:02.128Z"
+    },
+    {
+      "id": "WG-LIVE",
+      "title": "真实工作数据与代码依据",
+      "status": "进行中",
+      "next": "支持记录更新、归属纠正、验证证据与历史重写后的关联修复。",
+      "summary": "已读取工作记录和 HEAD 最近 300 条提交，通过完整 SHA 或 Work-Item 标识关联工作，并展示实际差异和未提交文件。Agent 负责理解与归纳，程序负责 Git 事实；提交数量不证明完成。本次分析参考远端 26c6b48；当前工作区仍为 d67de1b，远端新增提交不计入当前 HEAD 成果。",
+      "commits": [],
+      "updatedAt": "2026-10-28T03:24:02.128Z"
+    },
+    {
+      "id": "WG-VIEW",
+      "title": "工作轨道与进展阅读体验",
+      "status": "进行中",
+      "next": "根据用户对紧凑列表和底部详情的验收反馈继续收口。",
+      "summary": "已实现用户确认的紧凑工作列表：默认仅标题、状态和记录更新时间；箭头展开具体子工作与成果，点击标题打开同一个底部详情面板。摘要、下一步、问题、成果和提交依据均放入详情。16 项相关测试通过；浏览器已核对工作与子项展开、标题切换、实际差异、面板拖动和 420px 窄窗口。当前改动尚未提交，尚未由用户验收。",
+      "commits": [],
+      "updatedAt": "2026-10-28T03:26:12.187Z"
+    },
+    {
+      "id": "WG-CONTEXT",
+      "title": "Codex 仓库上下文与请求隔离",
+      "status": "进行中",
+      "next": "完成真实宿主多窗口、聊天切换、异常恢复与 SSH／WSL 场景验收。",
+      "summary": "按聊天和项目定位仓库、MCP roots 回退与旧请求隔离已有实现和本地测试。原记录标为已完成；本次把真实宿主验收纳入完成条件，调整为进行中。适配依赖宿主本地格式，兼容性仍待实测。",
+      "commits": [
+        "effa7cf960823b3d41c10b568d4da29819e28a0f"
+      ],
+      "updatedAt": "2026-10-28T03:24:02.128Z"
+    },
+    {
+      "id": "WG-DELIVERY",
+      "title": "安装、分发与版本迁移",
+      "status": "进行中",
+      "next": "验收真实安装、缓存更新、服务重开和旧版迁移。",
+      "summary": "构建、可迁移打包与生命周期已有实现。远端 26c6b48 统一命名并清理旧产物，已独立检出分析，尚未合并到当前工作区；本地另有未提交的命名迁移修改。真实宿主安装、更新和卸载仍待验收。暂不强行分配涉及多条动线的混合提交。",
+      "commits": [],
+      "updatedAt": "2026-10-28T03:24:02.128Z"
+    },
+    {
+      "id": "WG-DOCS",
+      "title": "产品规格与使用文档",
+      "status": "进行中",
+      "next": "落实 Agent 分析仓库、维护记录、WorkGraph 展示与追溯的接口规格和验收场景。",
+      "summary": "产品方向和安装、使用、架构说明已有阶段成果。用户于 2026-10-28 明确 Agent 是理解仓库与归纳进展的参与者。文档整理阶段已完成，持续规格仍在推进：生命周期、存储、授权与验证对象尚需冻结。",
+      "commits": [
+        "6e597f023a8e5ae1f05c405c8afa84ffe7935e31",
+        "0ecd3c6337b1eba1daf2782ed4b9ac1e605c8572"
+      ],
+      "updatedAt": "2026-10-28T03:24:02.128Z"
+    },
+    {
+      "id": "WG-GIT",
+      "title": "Git 操作与审阅基础",
+      "status": "已完成",
+      "next": "维护回归；复查 hook 失败处理与 shallow／prunable 边界两项测试失败。",
+      "summary": "提交图、差异审阅、分支标签、Stash、远程同步、历史操作和 Worktree 创建已有实现。状态复核和串行执行限于本进程，不能保证跨进程原子性。已完成指基础实现阶段完成；远端最新版本本次回归未跑完，已观察到两项失败，原因未定位，不表示测试或用户验收通过。",
+      "commits": [
+        "3c78e6eb5fff64793248e0f678748894a009c31f",
+        "f9870da5d7f348ca64603852f11c40902e82e7fd",
+        "3ff55fa58aadb60a5c99e0ee29dddd8f178638e8"
+      ],
+      "updatedAt": "2026-10-28T03:24:02.128Z"
+    },
+    {
+      "id": "WG-AGENT-RECORD",
+      "parentId": "WG-AGENT",
+      "kind": "outcome",
+      "title": "Agent 分析仓库并维护进展记录",
+      "status": "已完成",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "本轮已结合源码、文档与提交整理本仓库动线，并直接维护 .workgraph.json。成果是一次明确调用的实际流程，不代表后台自动记录。",
+      "next": "继续让后续分析沿用稳定工作项标识。",
+      "outcomes": [
+        "七条动线保留原有标识与提交归属。"
+      ],
+      "issues": [
+        "没有自动触发或完整 Agent 记录接口。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-AGENT-API",
+      "parentId": "WG-AGENT",
+      "kind": "work",
+      "title": "工作记录接口与跨会话续接",
+      "status": "待开始",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "需要设计 Agent 读取、更新、纠正记录及再次进入时核对现场的接口；现有 App 专用 Git 操作接口不是该接口。",
+      "next": "明确接口、授权与重复调用边界。",
+      "outcomes": [],
+      "issues": [
+        "自动恢复点与自动验收尚未实现。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-LIVE-READ",
+      "parentId": "WG-LIVE",
+      "kind": "outcome",
+      "title": "真实 Git 历史与工作归属读取",
+      "status": "已完成",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "src/work-graph.mjs 读取工作记录及 HEAD 最近 300 条提交，按显式 SHA 或 Work-Item 标识归属；Git 日期与差异来自真实仓库。",
+      "next": "持续校验截断与未归属场景。",
+      "outcomes": [
+        "读取链路已接通，未提交文件单独呈现。"
+      ],
+      "issues": [
+        "不从提交数量推断验证或验收。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-LIVE-MODEL",
+      "parentId": "WG-LIVE",
+      "kind": "work",
+      "title": "子工作层级与成果记录",
+      "status": "进行中",
+      "updatedAt": "2026-10-28T03:26:12.187Z",
+      "summary": "version 1 已扩展可选 parentId、kind、updatedAt、outcomes、issues，旧平面记录仍可读取。层级、循环、日期、字段长度与记录大小校验测试已通过；父项汇总子项明确关联时标明来源，子项不继承父项提交。当前代码未提交。",
+      "next": "继续让 Agent 使用稳定标识维护层级与证据，后续设计专用更新接口。",
+      "outcomes": [],
+      "issues": [
+        "子项不自动继承父项提交；更新时间来自记录，不从 Git 时间推断。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-VIEW-COMPACT",
+      "parentId": "WG-VIEW",
+      "kind": "work",
+      "title": "紧凑工作列表与子项展开",
+      "status": "进行中",
+      "updatedAt": "2026-10-28T03:26:12.187Z",
+      "summary": "一项一行展示标题、状态和记录更新时间；子工作与成果按箭头展开，不混入提交。搜索父项时仍能查看子工作；状态筛选保留祖先上下文。已通过相关行为测试及浏览器初检，当前实现未提交、用户未验收。",
+      "next": "根据用户对默认密度和层级表达的反馈调整。",
+      "outcomes": [
+        "真实浏览器展开 VIEW 动线后出现两条具体子工作。",
+        "420px 窄窗口无横向溢出。"
+      ],
+      "issues": [
+        "本次界面改动未提交，用户尚未验收。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-VIEW-DETAIL",
+      "parentId": "WG-VIEW",
+      "kind": "work",
+      "title": "可调高度的底部详情面板",
+      "status": "进行中",
+      "updatedAt": "2026-10-28T03:26:12.187Z",
+      "summary": "点击标题更新同一个底部详情面板；提供进展与代码依据页签、实际差异、收起和高度调整。浏览器已验证标题切换、实际差异读取及拖动比例由 34% 调整到 48%，上下区域独立滚动。相关旧响应隔离测试通过；当前实现尚未提交且未由用户验收。",
+      "next": "根据用户对详情高度和阅读体验的反馈收口。",
+      "outcomes": [
+        "底部详情与工作列表分别滚动。",
+        "支持指针拖动及键盘调整高度。"
+      ],
+      "issues": [
+        "大历史虚拟列表与工作依赖图未实现。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-CONTEXT-ISOLATION",
+      "parentId": "WG-CONTEXT",
+      "kind": "outcome",
+      "title": "仓库定位与过期请求隔离",
+      "status": "已完成",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "src/codex-context.mjs、src/workspace-context.mjs 及界面请求隔离已有实现和本地测试；旧请求不应恢复切换前的内容。",
+      "next": "维护仓库切换回归。",
+      "outcomes": [
+        "明确路径、聊天上下文与 MCP roots 的解析边界已记录。"
+      ],
+      "issues": [
+        "不代表全部真实宿主场景已验收。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-CONTEXT-HOST",
+      "parentId": "WG-CONTEXT",
+      "kind": "work",
+      "title": "真实宿主兼容验收",
+      "status": "待开始",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "需要在实际环境验证多窗口、聊天切换、异常恢复及 SSH／WSL；已有源码实现不能代替这些验收。",
+      "next": "建立可复现的宿主验收清单。",
+      "outcomes": [],
+      "issues": [
+        "宿主本地存储格式和多窗口行为存在兼容性风险。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-DELIVERY-BUILD",
+      "parentId": "WG-DELIVERY",
+      "kind": "outcome",
+      "title": "源码构建与可迁移打包",
+      "status": "已完成",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "scripts/build.mjs 和 scripts/package.mjs 已提供构建与独立目录打包流程；安装文档记录运行环境与数据保留边界。",
+      "next": "维护打包与握手测试。",
+      "outcomes": [
+        "本地构建链路已可用。"
+      ],
+      "issues": [
+        "不能据此认定 marketplace 安装已验收。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-DELIVERY-HOST",
+      "parentId": "WG-DELIVERY",
+      "kind": "work",
+      "title": "真实安装、更新与迁移验收",
+      "status": "待开始",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "真实 marketplace 发现、缓存更新、服务重开与旧版迁移仍需实测。远端统一命名提交尚未合并到本工作区。",
+      "next": "验证一次真实安装与更新流程。",
+      "outcomes": [],
+      "issues": [
+        "现有未提交命名修改与远端重叠，应保留并单独处理。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-DOCS-GUIDES",
+      "parentId": "WG-DOCS",
+      "kind": "outcome",
+      "title": "安装、使用和实现边界说明",
+      "status": "已完成",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "README、docs/work-graph.md、docs/current-implementation.md 等已有阶段说明；本轮继续同步层级与底部详情行为。",
+      "next": "随实现核对说明，避免将规划写成已交付。",
+      "outcomes": [
+        "产品方向与现有能力边界已有文档。"
+      ],
+      "issues": [],
+      "commits": []
+    },
+    {
+      "id": "WG-DOCS-PROTOCOL",
+      "parentId": "WG-DOCS",
+      "kind": "work",
+      "title": "Agent 协作与证据协议规格",
+      "status": "进行中",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "用户已确认 Agent 分析仓库、维护工作进展、由 WorkGraph 展示的方向。状态、验证和用户接受需分别表达。",
+      "next": "冻结记录接口、生命周期和自动化授权。",
+      "outcomes": [],
+      "issues": [
+        "存储并发、验证对象与恢复协议仍需细化。"
+      ],
+      "commits": []
+    },
+    {
+      "id": "WG-GIT-REVIEW",
+      "parentId": "WG-GIT",
+      "kind": "outcome",
+      "title": "Git 提交图与实际差异审阅",
+      "status": "已完成",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "src/git.mjs、src/graph.mjs 与 src/review.mjs 已实现历史、拓扑、文件比较和实际差异，Git 模式保留原有入口。",
+      "next": "维护查询与审阅回归。",
+      "outcomes": [
+        "提交、引用、Worktree 与文件差异可追溯。"
+      ],
+      "issues": [],
+      "commits": []
+    },
+    {
+      "id": "WG-GIT-ACTIONS",
+      "parentId": "WG-GIT",
+      "kind": "outcome",
+      "title": "Git 操作准备与执行边界",
+      "status": "已完成",
+      "updatedAt": "2026-10-28T03:24:02.128Z",
+      "summary": "src/actions.mjs、src/history-actions.mjs 和 src/remote-actions.mjs 提供状态复核及本进程内串行执行。",
+      "next": "复查先前观察到的 hook 处理与 shallow／prunable 两项测试失败。",
+      "outcomes": [
+        "操作执行前复核准备状态。"
+      ],
+      "issues": [
+        "跨进程不保证原子性；先前整仓回归未跑完，失败原因未定位。"
+      ],
+      "commits": []
+    }
   ]
 }

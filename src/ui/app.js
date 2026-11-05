@@ -16,7 +16,7 @@ async function call(route, args = {}) {
   const session=workspace.capture(), repositoryPath=state.repositoryPath;
   try {
   if (token) {
-    const write = ['prepare','execute','save_preferences'].includes(route), q = new URLSearchParams();
+    const write = ['prepare','execute','save_preferences','work_analyze'].includes(route), q = new URLSearchParams();
     if (!write) for (const [key,value] of Object.entries(args)) if (value !== undefined) q.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
     const response = await fetch(`/api/${route}?${q}`, {method:write?'POST':'GET',headers:{Authorization:`Bearer ${token}`,...(write?{'Content-Type':'application/json'}:{})},...(write?{body:JSON.stringify(args)}:{}),signal:AbortSignal.any([session.signal,AbortSignal.timeout(write?75000:60000)])});
     const data = await response.json(); session.assert(); if (!response.ok) throw new Error(data.error || '本地服务请求失败。'); return data;
@@ -69,7 +69,8 @@ function receive(data) {
   navRender();scopeRender();renderHistory();void workGraph?.update();
   $('summary').textContent=`已加载 ${data.commits.length} 条 · ${scopeLabel()} · ${data.worktrees.length} 个 Worktree${data.hasMore?' · 可继续加载':''}`;
 }
-const ROW_HEIGHT=24, LANE_WIDTH=20;
+const ROW_HEIGHT=32, LANE_WIDTH=20;
+document.documentElement.style.setProperty('--history-row-height', `${ROW_HEIGHT}px`);
 const icon = name => (icons[name] || icons['git-branch']).replace('<svg ', '<svg aria-hidden="true" class="icon" ');
 const x = n => 14+n*LANE_WIDTH;
 function svg(row,width) {
@@ -95,7 +96,7 @@ function renderHistory() {
     if(matched)state.matches.push(i);
     const paired=new Set();
     const displayRefs=refs.filter(r=>r.type!=='remote').map(r=>{const remote=r.upstream&&refs.find(f=>f.type==='remote'&&f.shortName===r.upstream);if(remote)paired.add(remote.name);return {...r,remote};}).concat(refs.filter(r=>r.type==='remote'&&!paired.has(r.name)));
-    const badge=r=>`<button class="tag ${r.type==='tag'?'tagref':r.type}" style="--ref-color:var(--c${row.color})" data-ref="${esc(r.name)}" title="${esc(r.name+(r.upstream?' → '+r.upstream:'')+(r.tracking?' '+r.tracking:''))}">${icon(r.type==='tag'?'tag':r.type==='remote'?'cloud':'git-branch')}<span>${esc(r.shortName)}</span>${r.tracking?`<span class="tracking">${esc(r.tracking.replaceAll('[','').replaceAll(']',''))}</span>`:''}${r.remote?`<span class="remote-part">${icon('cloud')}${esc(r.remote.shortName.split('/')[0])}</span>`:''}</button>`;
+    const badge=r=>`<button class="tag ${r.type==='tag'?'tagref':r.type} ${r.type==='branch'&&r.name===active()?.branch?'current-ref':''}" style="--ref-color:var(--c${row.color})" data-ref="${esc(r.name)}" title="${esc(r.name+(r.upstream?' → '+r.upstream:'')+(r.tracking?' '+r.tracking:''))}">${icon(r.type==='tag'?'tag':r.type==='remote'?'cloud':'git-branch')}<span>${esc(r.shortName)}</span>${r.tracking?`<span class="tracking">${esc(r.tracking.replaceAll('[','').replaceAll(']',''))}</span>`:''}${r.remote?`<span class="remote-part">${icon('cloud')}${esc(r.remote.shortName.split('/')[0])}</span>`:''}</button>`;
     const badges=working?[badge({name:wt.branch||wt.head||'',shortName:wtName(wt),type:'branch'}).replace('data-ref=', 'data-wip-ref=')]:displayRefs.slice(0,3).map(badge);
     const trees=data.worktrees.filter(w=>w.head===row.hash&&!w.bare);
     return `<div role="row" tabindex="-1" class="row commit-row ${working?'working':''} ${state.selected===row.id?'selected':''} ${matched?'match':''}" data-row="${i}" style="--row-color:var(--c${row.color})" aria-label="${esc(subject+(working?' · '+wtName(wt)+' · '+wt.status.total+' 个文件':' · '+row.author))}">${svg(row,width)}<div class="summary"><span class="refs">${badges.join('')}${displayRefs.length>3?`<button class="tag ref-overflow" data-refs="${i}">+${displayRefs.length-3}</button>`:''}${displayRefs.length>1?`<button class="tag ref-compact-count" data-refs="${i}">+${displayRefs.length-1}</button>`:''}</span><span class="subject">${highlight(subject,query)}</span>${working?`<span class="wip-count" title="已暂存 ${wt.status.staged} · 未暂存 ${wt.status.unstaged} · 未跟踪 ${wt.status.untracked} · 冲突 ${wt.status.conflicts}">${wt.status.total}</span>`:''}${trees.length?`<button class="tag" data-headtrees="${i}" title="${esc(trees.map(w=>w.path).join('\n'))}">WT ${trees.length}</button>`:''}${row.outgoing.some(e=>e.boundary)?'<span class="boundary-note" title="父提交被筛选、未载入或处于浅克隆边界">边界</span>':''}</div><span class="author">${esc(working?'未提交':row.author)}</span><span class="date">${working?'现在':(features?.dateText(row.date)||new Date(row.date).toLocaleDateString('zh-CN'))}</span><span class="sha">${row.hash?.slice(0,7)||'—'}</span><button class="row-more" data-row-menu="${i}" aria-label="${esc(subject)}，更多操作">${icon('ellipsis')}</button></div>`;

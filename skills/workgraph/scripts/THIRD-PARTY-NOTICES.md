@@ -1,0 +1,1 @@
+Microsoft Codicons 0.0.44 SVG assets, Copyright Microsoft Corporation, CC BY 4.0. See CODICONS-LICENSE.txt. Source: https://github.com/microsoft/vscode-codicons. Accessibility attributes added; shapes unchanged.

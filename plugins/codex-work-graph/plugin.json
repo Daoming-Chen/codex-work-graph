@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  "name": "codex-git-graph",
+  "name": "codex-work-graph",
   "version": "0.3.0",
   "description": "在侧边面板浏览 Git 历史、审阅文件差异，执行明确检查的 Git 操作。",
   "extensions": {

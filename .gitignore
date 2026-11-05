@@ -1,5 +1,7 @@
 node_modules/
-plugins/codex-git-graph/dist/
-plugins/codex-git-graph/.mcp.json
+plugins/codex-work-graph/dist/
+plugins/codex-work-graph/.mcp.json
 .test-output/
+.archify/
 *.log
+plugins/codex-work-graph/skills/workgraph/

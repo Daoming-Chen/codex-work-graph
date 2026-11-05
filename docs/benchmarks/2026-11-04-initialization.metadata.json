@@ -1,0 +1,113 @@
+{
+  "experimentDate": "2026-11-04",
+  "scope": "Local development version, first initialization with empty previous work items",
+  "fixture": {
+    "type": "anonymized design-document repository",
+    "trackedFiles": 35,
+    "commits": 17,
+    "contextBytes": 37508,
+    "contextSha256": "0c82ea337041ad2eb2189aeec3ccd7aafed45dcffad67d16ebd45f873c2b7f62"
+  },
+  "requestedServiceTier": "priority",
+  "actualDeliveredModel": "not-reported-by-cli-jsonl",
+  "actualDeliveredServiceTier": "not-reported-by-cli-jsonl",
+  "counts": {
+    "analysisAttempts": 28,
+    "normalReturns": 18,
+    "usableResults": 19,
+    "independentReviews": 38,
+    "probesExcluded": 5
+  },
+  "phases": [
+    {
+      "phase": "screening",
+      "seed": 20261104,
+      "configurationConcurrency": 2,
+      "perTaskTimeoutMs": 180000,
+      "analysisAttempts": 10,
+      "normalReturns": 2,
+      "usableResults": 2
+    },
+    {
+      "phase": "recovery-screening",
+      "seed": 20261105,
+      "configurationConcurrency": 2,
+      "perTaskTimeoutMs": 180000,
+      "analysisAttempts": 8,
+      "normalReturns": 6,
+      "usableResults": 7
+    },
+    {
+      "phase": "parallel-screening",
+      "seed": 20261106,
+      "configurationConcurrency": 1,
+      "perTaskTimeoutMs": 180000,
+      "analysisAttempts": 2,
+      "normalReturns": 2,
+      "usableResults": 2
+    },
+    {
+      "phase": "confirmation",
+      "seed": 20261107,
+      "configurationConcurrency": 1,
+      "perTaskTimeoutMs": 270000,
+      "analysisAttempts": 6,
+      "normalReturns": 6,
+      "usableResults": 6
+    },
+    {
+      "phase": "strong-parallel-screening",
+      "seed": 20261108,
+      "configurationConcurrency": 1,
+      "perTaskTimeoutMs": 270000,
+      "analysisAttempts": 2,
+      "normalReturns": 2,
+      "usableResults": 2
+    }
+  ],
+  "serialConfirmationMedians": {
+    "sol-medium": {
+      "wallMs": 174887,
+      "responseReadyMs": 148375,
+      "quality": 98.125,
+      "usd": 0.36040720000000004
+    },
+    "sol-low": {
+      "wallMs": 108265.5,
+      "responseReadyMs": 80105,
+      "quality": 91.375,
+      "usd": 0.2016092
+    },
+    "astra-low": {
+      "wallMs": 143520.5,
+      "responseReadyMs": 118058.5,
+      "quality": 91,
+      "usd": 1.2507899999999998
+    }
+  },
+  "scoring": {
+    "criteria": 17,
+    "maximum": 100,
+    "semanticAndEvidenceCoverage": 87,
+    "organizationAndUsability": 8,
+    "commitAttribution": 5,
+    "reviewersPerUsableResult": 2,
+    "blindedFields": [
+      "model",
+      "effort",
+      "agent count",
+      "latency",
+      "usage",
+      "cost"
+    ],
+    "formalStatisticalEquivalenceEstablished": false
+  },
+  "checks": {
+    "harnessTestsPassed": 8,
+    "harnessTestsTotal": 8,
+    "scoreArithmeticAndCriteriaAuditPassed": true,
+    "sourceAndSnapshotTrackedFilesUnchanged": true
+  },
+  "publicationPolicy": "Metrics only. No project source text, model work-item output, prompts, account details or local paths.",
+  "costScope": "API list-price estimate using requested Priority rates and reported cache usage; not actual spending or subscription usage; excludes supervisors and reviewers."
+}

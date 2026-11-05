@@ -1,0 +1,106 @@
+{
+  "date": "2026-11-05",
+  "scope": "统一 WorkGraph skill、显式更新、独立工作地图页面与插件 Git 界面分离",
+  "reviewer": "独立 Agent，参考 Archify skill 模式进行隔离仓库前向体验；不代表真实历史使用经历",
+  "rounds": [
+    {
+      "round": 1,
+      "checks": [
+        "迁移分发目录（中文与空格路径）",
+        "首次建立与自动增量路由",
+        "无代码变化的下一步调整",
+        "未变化工作保留更新时间",
+        "非法候选拒绝",
+        "过期材料拒绝",
+        "status 不创建地图"
+      ],
+      "findings": [
+        {
+          "issue": "独立页面清除 token fragment，刷新后认证丢失",
+          "fix": "保留完整 fragment；连续两次加载验证为 HTTP 200"
+        },
+        {
+          "issue": "CLI 保存耗时被展示为完整分析耗时",
+          "fix": "记录 execution=agent-save，界面显示保存耗时不含 Agent 分析，重开服务后保留"
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "checks": [
+        "刷新认证复查",
+        "保存耗时文案复查",
+        "工作地图界面回归"
+      ],
+      "remainingReproducibleIssues": []
+    },
+    {
+      "round": 3,
+      "checks": [
+        "最新包 doctor 及配套资源检查",
+        "context 自动请求目录 → 候选 → save → status",
+        "精简保存回执路径与工作项数",
+        "两次页面加载 HTTP 200",
+        "重开服务读取 agent-save",
+        "独立页面没有 Git 管理元素",
+        "Git 写接口返回 404"
+      ],
+      "remainingReproducibleIssues": []
+    }
+  ],
+  "evidence": {
+    "first": ".test-output/archify-review-iJwmQJ/evidence.json",
+    "refresh": ".test-output/archify-refresh-evidence.json",
+    "final": {
+      "doctor": {
+        "node": "v24.16.0",
+        "git": "git version 2.54.0.windows.1",
+        "ready": true
+      },
+      "mode": "update",
+      "pageStatuses": [
+        200,
+        200
+      ],
+      "reopenedExecutions": [
+        "agent-save",
+        "agent-save"
+      ],
+      "tokenPreserved": true,
+      "gitWriteEndpoint": 404,
+      "noGitManagementHtml": true,
+      "saved": {
+        "state": "saved",
+        "mode": "update",
+        "workCount": 1
+      }
+    }
+  },
+  "validationLimits": [
+    "CLI、真实 HTTP 和页面入口逻辑已经验证；未做浏览器截图级视觉验收",
+    "尚未验证真实 Codex 宿主的技能发现与插件安装",
+    "本轮未调用付费模型；使用当前 Agent 编写候选记录"
+  ],
+  "validation": {
+    "build": "passed",
+    "syntaxChecks": "passed",
+    "skillValidation": "passed (Python UTF-8 mode)",
+    "fullSuite": {
+      "tests": 140,
+      "passed": 140,
+      "failed": 0,
+      "log": ".test-output/manual-skill-tests-unsandboxed.log"
+    },
+    "targetedRegression": {
+      "tests": 43,
+      "passed": 43,
+      "log": ".test-output/manual-skill-verified.log"
+    },
+    "finalFeedbackRegression": {
+      "tests": 24,
+      "passed": 24,
+      "log": ".test-output/skill-final-regression.log"
+    },
+    "environment": "沙箱回环连接受限，完整测试在获准的沙箱外执行。运行文件随 skill 交付，不依赖源码目录。"
+  }
+}

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const source = path.join(root, 'plugins/codex-git-graph');
+const source = path.join(root, 'plugins/codex-work-graph');
 // An allowlist keeps local absolute-path wiring and development files out of
 // distributions. Every runtime dependency is bundled into dist/server.mjs.
 export async function packagePlugin(destination) {

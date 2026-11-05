@@ -1,14 +1,14 @@
 {
-  "name": "codex-git-graph",
+  "name": "codex-work-graph",
   "version": "0.3.0",
   "description": "在侧边面板浏览 Git 历史、审阅文件差异，执行明确检查的本地暂存、提交、分支与 Worktree 操作。",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "Git Graph",
+    "displayName": "WorkGraph",
     "shortDescription": "可视化本地 Git 与 Worktree 状态",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
-    "defaultPrompt": ["打开当前仓库的 Git Graph，显示所有 Worktree。"]
+    "defaultPrompt": ["打开当前仓库的 WorkGraph，显示所有 Worktree。"]
   }
 }
