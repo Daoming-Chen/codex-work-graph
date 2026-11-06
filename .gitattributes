@@ -1,0 +1,6 @@
+# Generated standalone assets must match on Windows and Unix checkouts.
+skills/workgraph/scripts/* text eol=lf
+skills/workgraph/LICENSE text eol=lf
+plugins/workgraph/LICENSE text eol=lf
+plugins/workgraph/THIRD-PARTY-LICENSES.txt text eol=lf
+plugins/workgraph/THIRD-PARTY-NOTICES.md text eol=lf

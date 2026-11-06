@@ -5,3 +5,5 @@ plugins/codex-work-graph/
 .test-output/
 .archify/
 *.log
+
+.release-output/

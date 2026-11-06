@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'manager/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run check:generated
+      - run: npm run check
+      - run: npm test
+      - name: Install Chromium
+        if: matrix.node == 24
+        run: npx playwright install --with-deps chromium
+      - name: Browser regression tests
+        if: matrix.node == 24
+        run: npm run test:e2e
+      - name: Upload browser failure evidence
+        if: failure() && matrix.node == 24
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-failures-${{ matrix.os }}
+          path: .test-output/playwright/
+          if-no-files-found: ignore
+          retention-days: 7

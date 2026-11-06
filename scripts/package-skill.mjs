@@ -9,7 +9,8 @@ export async function packageSkill(destination) {
   await readFile(path.join(source,'scripts/workgraph.mjs'));
   await readFile(path.join(source,'scripts/graph.html'));
   await mkdir(target,{recursive:false});
-  for(const item of ['SKILL.md','references','scripts'])await cp(path.join(source,item),path.join(target,item),{recursive:true,errorOnExist:true,force:false});
+  for(const directory of ['references','scripts'])await mkdir(path.join(target,directory));
+  for(const item of ['LICENSE','SKILL.md','references/initialize.md','references/update.md','scripts/workgraph.mjs','scripts/graph.html','scripts/CODICONS-LICENSE.txt','scripts/THIRD-PARTY-NOTICES.md','scripts/THIRD-PARTY-LICENSES.txt'])await cp(path.join(source,item),path.join(target,item),{errorOnExist:true,force:false});
   return target;
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {

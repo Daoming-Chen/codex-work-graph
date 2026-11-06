@@ -1,0 +1,33 @@
+name: Prepare release artifacts
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Expected version (vX.Y.Z); validates selected workflow ref, does not select a tag
+        required: true
+        type: string
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Build and prepare both archives
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: npm run release -- --tag "$RELEASE_TAG" --output .release-output/candidate
+      - run: npm run check && npm test
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: workgraph-release-candidate
+          path: .release-output/candidate/*
+          if-no-files-found: error

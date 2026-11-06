@@ -21,6 +21,25 @@ npm run demo
 
 演示会在 `.test-output/` 创建独立仓库，不修改本项目历史。面板中的写操作会改变演示仓库。
 
+## 自动验证与浏览器回归
+
+GitHub CI 在 Windows／Linux、Node.js 22／24 上执行依赖安装、构建、生成物同步检查、语法检查和单元／集成测试；Node.js 24 另外执行 Chromium 回归。CI 状态以实际工作流结果为准，不代表真实 Codex 桌面宿主验收。
+
+独立 skill 的 `scripts/` 运行文件随源码提交。修改相关源码后运行 `npm run build`，将生成物一并提交；`npm run check:generated` 会检查这些文件相对于 HEAD 的变化。构建脚本统一随包 Codicons 许可文本的换行，Git 属性固定生成物为 LF，避免跨平台产生换行差异。
+
+本地运行浏览器回归：
+
+```powershell
+npm ci
+npm run build
+npx playwright install chromium
+npm run test:e2e
+```
+
+Linux 首次安装可能还需系统依赖，可运行 `npx playwright install --with-deps chromium`。测试使用独立的中文与空格路径仓库、随机回环端口和真实 Git／HTTP，不调用模型、不修改开发仓库。覆盖工作展开与筛选、详情与真实差异、刷新认证、延迟响应隔离。失败截图与 trace 保存在 `.test-output/playwright/`；CI 失败时保留 7 天。trace 可能包含测试服务的临时令牌与测试内容，不应使用真实敏感仓库替换 fixture。
+
+这些测试覆盖独立工作地图的浏览器行为，不覆盖真实 Codex 插件安装、宿主聊天切换或视觉验收。
+
 ## 本地快速开发
 
 日常开发直接运行仓库源码；插件声明、技能和安装流程的验收使用[安装与打包](docs/install-lifecycle.md)中的完整安装流程。源码入口不会更新已安装的插件缓存。
