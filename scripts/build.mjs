@@ -1,8 +1,9 @@
 import { build } from 'esbuild';
-import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Script } from 'node:vm';
+import { collectThirdPartyLicenses } from './third-party-licenses.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = path.join(root, 'plugins/workgraph/dist');
@@ -27,6 +28,14 @@ console.log('Built plugins/workgraph/dist and standalone skills/workgraph.');
 
 await writeFile(path.join(root,'plugins/workgraph/CODICONS-LICENSE.txt'), await readFile(path.join(root,'node_modules/@vscode/codicons/LICENSE')));
 await writeFile(path.join(root,'plugins/workgraph/THIRD-PARTY-NOTICES.md'),'Microsoft Codicons 0.0.44 SVG assets, Copyright Microsoft Corporation, CC BY 4.0. See CODICONS-LICENSE.txt. Source: https://github.com/microsoft/vscode-codicons. Accessibility attributes added; shapes unchanged.\n');
-await writeFile(path.join(skill, 'scripts/CODICONS-LICENSE.txt'), (await readFile(path.join(root, 'plugins/workgraph/CODICONS-LICENSE.txt'), 'utf8')).replace(/[ \t]+(?=\r?$)/gm, ''));
+await writeFile(path.join(skill, 'scripts/CODICONS-LICENSE.txt'), (await readFile(path.join(root, 'plugins/workgraph/CODICONS-LICENSE.txt'), 'utf8')).replace(/\r\n/g, '\n').replace(/[ \t]+(?=\r?$)/gm, ''));
 await cp(path.join(root, 'plugins/workgraph/THIRD-PARTY-NOTICES.md'), path.join(skill, 'scripts/THIRD-PARTY-NOTICES.md'));
-await cp(skill, path.join(root, 'plugins/workgraph/skills/workgraph'), { recursive: true });
+const projectLicense = await readFile(path.join(root, 'LICENSE'), 'utf8');
+await writeFile(path.join(root, 'plugins/workgraph/LICENSE'), projectLicense);
+await writeFile(path.join(skill, 'LICENSE'), projectLicense);
+const thirdPartyLicenses = await collectThirdPartyLicenses(root);
+await writeFile(path.join(root, 'plugins/workgraph/THIRD-PARTY-LICENSES.txt'), thirdPartyLicenses);
+await writeFile(path.join(skill, 'scripts/THIRD-PARTY-LICENSES.txt'), thirdPartyLicenses);
+const packagedSkill = path.join(root, 'plugins/workgraph/skills/workgraph');
+await rm(packagedSkill, { recursive: true, force: true });
+await cp(skill, packagedSkill, { recursive: true });

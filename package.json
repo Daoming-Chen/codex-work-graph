@@ -9,11 +9,14 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "release": "node scripts/release.mjs",
     "start": "node src/server.mjs --http",
     "mcp": "node src/server.mjs",
     "demo": "node scripts/demo.mjs",
     "test": "node --test --test-concurrency=1 test/*.test.mjs",
-    "check": "node --check src/server.mjs && node --check src/git.mjs && node --check src/ui/app.js"
+    "check": "node --check src/server.mjs && node --check src/git.mjs && node --check src/ui/app.js",
+    "test:e2e": "playwright test",
+    "check:generated": "node scripts/check-generated.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "2.0.3",
@@ -22,6 +25,8 @@
     "zod": "^4.2.0"
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "@playwright/test": "1.65.0",
+    "esbuild": "0.28.2",
+    "fflate": "0.8.3"
   }
 }

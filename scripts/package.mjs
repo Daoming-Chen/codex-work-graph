@@ -1,6 +1,7 @@
 import { cp, mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { packageSkill } from './package-skill.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const source = path.join(root, 'plugins/workgraph');
@@ -12,9 +13,13 @@ export async function packagePlugin(destination) {
   await readFile(path.join(source, 'dist/server.mjs'));
   await readFile(path.join(source, 'dist/graph.html'));
   await mkdir(target, { recursive: false });
-  for (const item of ['plugin.json', 'mcp.json', 'dist', 'skills', 'CODICONS-LICENSE.txt', 'THIRD-PARTY-NOTICES.md']) {
+  for (const item of ['LICENSE', 'plugin.json', 'mcp.json', 'THIRD-PARTY-LICENSES.txt', 'CODICONS-LICENSE.txt', 'THIRD-PARTY-NOTICES.md']) {
     await cp(path.join(source, item), path.join(target, item), { recursive: true, errorOnExist: true, force: false });
   }
+  await mkdir(path.join(target, 'dist'));
+  for (const item of ['server.mjs', 'graph.html']) await cp(path.join(source, 'dist', item), path.join(target, 'dist', item), { errorOnExist: true, force: false });
+  await mkdir(path.join(target, 'skills'));
+  await packageSkill(path.join(target, 'skills/workgraph'));
   return target;
 }
 
