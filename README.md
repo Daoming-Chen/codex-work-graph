@@ -100,5 +100,5 @@ npm start -- --repo "D:\path\to\repository"
 
 ## 许可证
 
-仓库目前未提供项目 LICENSE，不能据此认定已授予开源使用、修改或分发许可。第三方素材的声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+WorkGraph 采用 [Apache License 2.0](LICENSE)。第三方依赖与素材遵循各自的许可证，相关声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
 

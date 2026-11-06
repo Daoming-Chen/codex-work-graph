@@ -79,7 +79,7 @@ npm start -- --repo "D:\MyGithub\codex-git-graph"
 3. 运行相关验证，在 PR 中说明执行结果和未验证范围。
 4. 向本仓库提交 Pull Request，说明问题和修改后的行为。
 
-仓库目前没有项目 LICENSE，项目许可证尚未确定。第三方声明不等同于项目授权，以上贡献流程也不构成使用或分发授权。
+WorkGraph 采用 [Apache License 2.0](LICENSE)。除非明确另行声明，提交到本项目并用于合入的贡献也适用该许可证。第三方依赖与素材遵循各自的许可证。
 
 ## 架构与维护原则
 
