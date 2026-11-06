@@ -5,7 +5,7 @@ import { git } from '../../src/git.mjs';
 import { startHttp } from '../../src/http.mjs';
 
 const test = base.extend({
-  workMap: async ({}, use) => {
+  workMap: async ({ context }, use) => {
     const output = path.resolve('.test-output');
     await mkdir(output, { recursive: true });
     const directory = await mkdtemp(path.join(output, 'browser-'));
@@ -33,8 +33,15 @@ const test = base.extend({
       panel = await startHttp({ repositoryPath: root, html, workMapOnly: true });
       await use({ ...panel, root, record, writeRecord });
     } finally {
-      await panel?.close();
-      await rm(directory, { recursive: true, force: true });
+      // The HTTP fixture outlives all of its browser clients. Closing the
+      // context stops polling and releases Chromium's pooled connections before
+      // server.close waits for those connections to finish (notably on Windows).
+      try {
+        await context.close();
+      } finally {
+        try { await panel?.close(); }
+        finally { await rm(directory, { recursive: true, force: true }); }
+      }
     }
   },
 });
@@ -75,7 +82,11 @@ test('retains authentication on refresh and rejects unauthenticated or write API
   await page.reload();
   await expect(page.locator('[data-record="PARENT"]')).toBeVisible();
   expect(new URL(page.url()).hash).toBe(before);
+  const refreshed = page.waitForResponse(response => response.url().startsWith(`${workMap.origin}/api/work_graph?`));
   await page.getByRole('button', { name: '刷新', exact: true }).click();
+  const response = await refreshed;
+  expect(response.status()).toBe(200);
+  await response.finished();
   await expect(page.locator('#work-count')).toContainText('1 个提交');
   expect((await request.get(`${workMap.origin}/api/work_graph`)).status()).toBe(401);
   expect((await request.post(`${workMap.origin}/api/prepare`, {
