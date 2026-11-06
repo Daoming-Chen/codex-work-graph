@@ -1,6 +1,6 @@
 // src/workgraph-cli.mjs
-import { readFile as readFile6, writeFile as writeFile2, lstat as lstat7, mkdir as mkdir2, mkdtemp as mkdtemp2 } from "node:fs/promises";
-import path10 from "node:path";
+import { readFile as readFile7, writeFile as writeFile2, lstat as lstat8, mkdir as mkdir2, mkdtemp as mkdtemp2 } from "node:fs/promises";
+import path11 from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 
@@ -1744,9 +1744,65 @@ async function fileContent(repository, input) {
 }
 
 // src/preferences.mjs
-import { realpath as realpath5, lstat as lstat6, readFile as readFile5, open as open5, rename as rename2, unlink as unlink2 } from "node:fs/promises";
+import { realpath as realpath5, lstat as lstat7, readFile as readFile6, open as open6, rename as rename2, unlink as unlink3 } from "node:fs/promises";
+import path10 from "node:path";
+import { randomUUID as randomUUID4 } from "node:crypto";
+
+// src/file-lock.mjs
+import { lstat as lstat6, open as open5, link, readFile as readFile5, unlink as unlink2 } from "node:fs/promises";
 import path9 from "node:path";
 import { randomUUID as randomUUID3 } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
+async function withFileLock(filename2, task, { timeoutMs = 5e3, retryMs = 25 } = {}) {
+  const token = randomUUID3();
+  const temporary = path9.join(path9.dirname(filename2), `${path9.basename(filename2)}.${token}.tmp`);
+  const owner = JSON.stringify({ version: 1, token, pid: process.pid, createdAt: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
+  let handle, acquired = false, identity2;
+  try {
+    handle = await open5(temporary, "wx", 384);
+    await handle.writeFile(owner, "utf8");
+    await handle.sync();
+    identity2 = await handle.stat();
+    await handle.close();
+    handle = void 0;
+    const deadline = performance.now() + timeoutMs;
+    while (!acquired) {
+      try {
+        await link(temporary, filename2);
+        acquired = true;
+      } catch (error) {
+        if (error.code !== "EEXIST") throw new Error("\u65E0\u6CD5\u521B\u5EFA\u504F\u597D\u4FDD\u5B58\u9501\uFF1B\u9700\u8981\u652F\u6301\u540C\u76EE\u5F55\u786C\u94FE\u63A5\u7684\u672C\u5730\u6587\u4EF6\u7CFB\u7EDF\u3002", { cause: error });
+        const info = await lstat6(filename2).catch((check) => {
+          if (check.code === "ENOENT") return null;
+          throw check;
+        });
+        if (info && (!info.isFile() || info.isSymbolicLink())) throw new Error("\u504F\u597D\u4FDD\u5B58\u9501\u5FC5\u987B\u662F\u666E\u901A\u6587\u4EF6\uFF0C\u4E0D\u80FD\u4F7F\u7528\u7B26\u53F7\u94FE\u63A5\u3002");
+        if (performance.now() >= deadline) throw new Error(`\u504F\u597D\u4FDD\u5B58\u9501\u7B49\u5F85\u8D85\u65F6\uFF1A${filename2}\u3002\u53E6\u4E00\u4E2A WorkGraph \u53EF\u80FD\u6B63\u5728\u4FDD\u5B58\uFF1B\u82E5\u8FDB\u7A0B\u5F02\u5E38\u9000\u51FA\uFF0C\u8BF7\u5148\u505C\u6B62\u8BE5\u4ED3\u5E93\u7684\u6240\u6709 WorkGraph \u8FDB\u7A0B\uFF0C\u786E\u8BA4\u6CA1\u6709\u4FDD\u5B58\u6B63\u5728\u6267\u884C\u540E\u518D\u79FB\u9664\u6B64\u9501\u6587\u4EF6\u3002`);
+        await delay(retryMs);
+      }
+    }
+    await unlink2(temporary);
+    return await task();
+  } finally {
+    await handle?.close().catch(() => {
+    });
+    try {
+      await unlink2(temporary).catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+    } finally {
+      if (acquired) {
+        const current = await lstat6(filename2).catch((error) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        });
+        if (current?.isFile() && !current.isSymbolicLink() && current.size === Buffer.byteLength(owner) && current.dev === identity2?.dev && current.ino === identity2?.ino && await readFile5(filename2, "utf8") === owner) await unlink2(filename2);
+      }
+    }
+  }
+}
+
+// src/preferences.mjs
 var filename = "workgraph-state.json";
 var maxBytes = 1024 * 1024;
 var retention = 90 * 24 * 60 * 60 * 1e3;
@@ -1814,10 +1870,10 @@ function state(value, timestamp2) {
 async function storage(repository) {
   const { root } = await resolveRepository(repository);
   const directory = await realpath5((await git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim());
-  return { directory, target: path9.join(directory, filename) };
+  return { directory, target: path10.join(directory, filename) };
 }
 async function checkedStat(target) {
-  const stat = await lstat6(target).catch((error) => {
+  const stat = await lstat7(target).catch((error) => {
     if (error.code === "ENOENT") return null;
     throw error;
   });
@@ -1827,7 +1883,7 @@ async function checkedStat(target) {
 }
 async function read(target, timestamp2) {
   if (!await checkedStat(target)) return { config: {}, reviews: {} };
-  const bytes = await readFile5(target);
+  const bytes = await readFile6(target);
   if (bytes.length > maxBytes) throw new Error("\u4ED3\u5E93\u5B58\u50A8\u8D85\u8FC7 1 MiB\u3002");
   let parsed;
   try {
@@ -1862,17 +1918,17 @@ async function savePreferences(repository, input) {
     nextReview = { key: input.review.key, ...review(input.review, Date.now()) };
   }
   const { directory, target } = await storage(repository);
-  return serial(directory, async () => {
+  return serial(directory, () => withFileLock(path10.join(directory, "workgraph-state.lock"), async () => {
     const timestamp2 = Date.now(), data = await read(target, timestamp2);
     if (nextConfig) data.config = nextConfig;
     if (nextReview) data.reviews[nextReview.key] = { active: nextReview.active, files: nextReview.files, updatedAt: timestamp2 };
     if (Object.keys(data.reviews).length > maxReviews) throw new Error("\u5BA1\u9605\u8BB0\u5F55\u8FC7\u591A\uFF0C\u8BF7\u5148\u6E05\u7406\u65E7\u8BB0\u5F55\u3002");
     const content = JSON.stringify(data, null, 2) + "\n";
     if (Buffer.byteLength(content) > maxBytes) throw new Error("\u4ED3\u5E93\u5B58\u50A8\u8D85\u8FC7 1 MiB\u3002");
-    const temporary = path9.join(directory, `${filename}.${randomUUID3()}.tmp`);
+    const temporary = path10.join(directory, `${filename}.${randomUUID4()}.tmp`);
     let handle;
     try {
-      handle = await open5(temporary, "wx", 384);
+      handle = await open6(temporary, "wx", 384);
       await handle.writeFile(content, "utf8");
       await handle.sync();
       await handle.close();
@@ -1882,12 +1938,12 @@ async function savePreferences(repository, input) {
     } catch (error) {
       await handle?.close().catch(() => {
       });
-      await unlink2(temporary).catch(() => {
+      await unlink3(temporary).catch(() => {
       });
       throw error;
     }
     return data;
-  });
+  }));
 }
 
 // src/http.mjs
@@ -2034,31 +2090,31 @@ async function saveWorkMap(repositoryPath, packet, result) {
     const status = await service.wait(root);
     if (status.state !== "idle") throw new Error(status.error || "\u5DE5\u4F5C\u5730\u56FE\u4FDD\u5B58\u5931\u8D25\u3002");
     const { manifest } = await loadWorkRecord(root);
-    return { state: "saved", repositoryPath: root, mode: packet.mode, recordPath: path10.join(root, ".workgraph/state.json"), workCount: manifest.works.length };
+    return { state: "saved", repositoryPath: root, mode: packet.mode, recordPath: path11.join(root, ".workgraph/state.json"), workCount: manifest.works.length };
   } finally {
     await service.close();
   }
 }
 async function jsonFile(filename2) {
-  const info = await lstat7(filename2);
+  const info = await lstat8(filename2);
   if (!info.isFile() || info.isSymbolicLink() || info.size > 4 * 1024 * 1024) throw new Error("\u8F93\u5165\u5FC5\u987B\u662F\u5C0F\u4E8E 4 MiB \u7684\u666E\u901A JSON \u6587\u4EF6\u3002");
-  return JSON.parse((await readFile6(filename2, "utf8")).replace(/^\uFEFF/, ""));
+  return JSON.parse((await readFile7(filename2, "utf8")).replace(/^\uFEFF/, ""));
 }
 async function requestPath(repositoryPath) {
   const { root, bare } = await resolveRepository(repositoryPath);
   if (bare) throw new Error("\u88F8\u4ED3\u5E93\u4E0D\u80FD\u5EFA\u7ACB\u5DE5\u4F5C\u5730\u56FE\u3002");
   for (const name of [".workgraph", ".workgraph/runtime"]) {
-    const directory = path10.join(root, name);
+    const directory = path11.join(root, name);
     await mkdir2(directory).catch((error) => {
       if (error.code !== "EEXIST") throw error;
     });
-    const info = await lstat7(directory);
+    const info = await lstat8(directory);
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("WorkGraph \u8FD0\u884C\u8DEF\u5F84\u5FC5\u987B\u662F\u666E\u901A\u76EE\u5F55\u3002");
   }
-  await writeFile2(path10.join(root, ".workgraph/.gitignore"), "runtime/\nstate-*.tmp\n", { flag: "wx" }).catch((error) => {
+  await writeFile2(path11.join(root, ".workgraph/.gitignore"), "runtime/\nstate-*.tmp\n", { flag: "wx" }).catch((error) => {
     if (error.code !== "EEXIST") throw error;
   });
-  return path10.join(await mkdtemp2(path10.join(root, ".workgraph/runtime/request-")), "context.json");
+  return path11.join(await mkdtemp2(path11.join(root, ".workgraph/runtime/request-")), "context.json");
 }
 async function runCli(argv) {
   const [command, ...args] = argv;
@@ -2072,7 +2128,7 @@ async function runCli(argv) {
     options[args[i]] = args[i + 1];
   }
   if (command === "doctor") {
-    for (const asset of ["./graph.html", "../references/initialize.md", "../references/update.md"]) await readFile6(new URL(asset, import.meta.url));
+    for (const asset of ["./graph.html", "../references/initialize.md", "../references/update.md"]) await readFile7(new URL(asset, import.meta.url));
     return { node: process.version, git: execFileSync("git", ["--version"], { encoding: "utf8", windowsHide: true }).trim(), ready: Number(process.versions.node.split(".")[0]) >= 22 };
   }
   if (!options["--repo"]) throw new Error("\u8BF7\u7528 --repo \u663E\u5F0F\u4F20\u5165\u5F53\u524D\u4ED3\u5E93\u8DEF\u5F84\u3002");
@@ -2085,14 +2141,14 @@ async function runCli(argv) {
     const packet = await prepareWorkMap(repo);
     const output = await requestPath(repo);
     await writeFile2(output, JSON.stringify(packet, null, 2) + "\n", { flag: "wx" });
-    return { state: "prepared", mode: packet.mode, contextPath: path10.resolve(output), candidatePath: path10.join(path10.dirname(path10.resolve(output)), "candidate.json"), reference: `references/${packet.mode}.md` };
+    return { state: "prepared", mode: packet.mode, contextPath: path11.resolve(output), candidatePath: path11.join(path11.dirname(path11.resolve(output)), "candidate.json"), reference: `references/${packet.mode}.md` };
   }
   if (command === "save") {
     if (!options["--context"] || !options["--input"]) throw new Error("save \u9700\u8981 --context \u548C --input\u3002");
     return saveWorkMap(repo, await jsonFile(options["--context"]), await jsonFile(options["--input"]));
   }
   if (command === "open") {
-    const html = await readFile6(new URL("./graph.html", import.meta.url), "utf8");
+    const html = await readFile7(new URL("./graph.html", import.meta.url), "utf8");
     const panel = await startHttp({ repositoryPath: repo, html, workMapOnly: true });
     const shutdown = async () => {
       await panel.close();
@@ -2103,7 +2159,7 @@ async function runCli(argv) {
   }
   throw new Error("\u672A\u77E5\u547D\u4EE4\uFF0C\u8BF7\u8FD0\u884C --help\u3002");
 }
-if (process.argv[1] && path10.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && path11.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     console.log(JSON.stringify(await runCli(process.argv.slice(2))));
   } catch (error) {

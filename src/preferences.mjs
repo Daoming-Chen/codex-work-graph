@@ -2,6 +2,7 @@ import { realpath, lstat, readFile, open, rename, unlink } from 'node:fs/promise
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { git, resolveRepository } from './git.mjs';
+import { withFileLock } from './file-lock.mjs';
 
 const filename = 'workgraph-state.json';
 const maxBytes = 1024 * 1024;
@@ -104,7 +105,7 @@ export async function savePreferences(repository, input) {
     nextReview = { key: input.review.key, ...review(input.review, Date.now()) };
   }
   const { directory, target } = await storage(repository);
-  return serial(directory, async () => {
+  return serial(directory, () => withFileLock(path.join(directory, 'workgraph-state.lock'), async () => {
     const timestamp = Date.now(), data = await read(target, timestamp);
     if (nextConfig) data.config = nextConfig;
     if (nextReview) data.reviews[nextReview.key] = { active: nextReview.active, files: nextReview.files, updatedAt: timestamp };
@@ -124,5 +125,5 @@ export async function savePreferences(repository, input) {
       throw error;
     }
     return data;
-  });
+  }));
 }
