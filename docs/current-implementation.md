@@ -11,6 +11,7 @@
 | `src/actions.mjs` | 文件清单、逐文件 diff、prepare/execute 与状态校验 |
 | `src/remote-actions.mjs`、`src/history-actions.mjs` | 远程引用、历史和工作区写操作校验 |
 | `src/review.mjs` | 元数据、历史／工作目录比较、文件内容 |
+| `src/work-resume.mjs` | 生成有界只读续接说明，复核历史记录与当前元数据，不调用模型或执行写操作 |
 | `src/work-graph.mjs`、`src/ui/work-live.js` | 工作记录读取、提交归属、工作轨道和实际差异展示 |
 | `src/work-analysis.mjs`、`src/work-context.mjs` | 有界分析材料、显式分析、增量合并、可靠保存与阶段计时 |
 | `src/preferences.mjs` | 仓库配置与审阅进度持久化 |
@@ -74,3 +75,11 @@ Git 使用参数数组和 literal pathspec；目标 Worktree 校验 common dir�
 `skills/workgraph` 是唯一对外 skill，构建生成独立 CLI 与工作地图页面。`src/workgraph-cli.mjs` 提供 `context`、`save`、`status`、`open` 和 `doctor`；Agent 在当前聊天中组织工作记录，通过 CLI 共用校验与原子保存。内部首次建立／增量更新规范位于 skill 的 references，不作为独立 skill 发现。插件保留 Git 界面及显式分析入口，调用本机 Codex 只读分析；默认自动判断流程，但不自动启动分析。
 
 `src/work-analysis.mjs` 负责跨进程分析锁、代码及记录复核、结果合并、原子保存和计时。状态查询、打开面板、代码变化和旧自动化标记均不触发分析。Git 写操作继续由插件界面调用，未加入 skill。材料与存储边界见 [WorkGraph 使用说明](work-graph.md)。
+
+## 只读续接
+
+`src/work-resume.mjs` 为 CLI `resume --repo <path> --work <id>`、鉴权 GET `/api/work_resume?workId=...` 和仅供 App 使用的 MCP 工具 `workgraph_work_resume` 提供同一份说明。独立工作地图允许这个只读查询；其他 Git 写接口仍不开放。界面只预览、复制或选择文本，不依赖宿主向聊天发送消息的能力。
+
+续接按规范化的具体 Worktree 路径读取记录。记录 revision 包含解析后的完整记录及来源，能识别新旧存储路径切换；它不是文件字节摘要。Git 查询使用有界读取、参数数组和 `--no-optional-locks`，不读取源码、差异正文或未提交文件内容。生成前后观察记录、HEAD、分支与状态清单，变化时最多重试一次；这不能检测所有并发内容修改，也不能提供原子仓库快照。
+
+只有基线的完整 SHA、受限分支字符串和有效 UTC 时间参与说明，其他 `analysis` 字段不输出。工作文本按 JSON 数据封装，固定说明要求使用前复核，不把记录中的下一步或提交内容解释成授权。界面以仓库 epoch、所选工作项和请求序号隔离旧响应，复制前重新读取；切换仓库或详情后旧请求不能触发复制。范围、截断与错误行为见[准备续接说明](work-graph.md#准备续接说明)。

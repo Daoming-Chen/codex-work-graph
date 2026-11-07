@@ -7,6 +7,7 @@ import { collectWorkContext, normalizeWorktreeSnapshot } from './work-context.mj
 import { loadWorkRecord } from './work-graph.mjs';
 import { resolveRepository } from './git.mjs';
 import { startHttp } from './http.mjs';
+import { readResumeContext } from './work-resume.mjs';
 
 export async function prepareWorkMap(repositoryPath) {
   const {root,bare}=await resolveRepository(repositoryPath);
@@ -60,17 +61,22 @@ async function requestPath(repositoryPath) {
 export async function runCli(argv) {
   const [command,...args]=argv;
   if(!command||command==='--help'||command==='help')return {
-    commands:['doctor','status --repo <path>','context --repo <path>','save --repo <path> --context <context.json> --input <candidate.json>','open --repo <path>'],
-    usage:'Only context + save update the work map when the user requests it. status/open never start analysis. open stays running until Ctrl+C.',
+    commands:['doctor','status --repo <path>','resume --repo <path> --work <id>','context --repo <path>','save --repo <path> --context <context.json> --input <candidate.json>','open --repo <path>'],
+    resumeOutput:'resume returns bounded JSON including copyable text; it reads historical records and current metadata without sending messages or writing files.',
+    usage:'Only context + save update the work map when the user requests it. status/open/resume never start analysis. open stays running until Ctrl+C.',
   };
   const options={};
-  for(let i=0;i<args.length;i+=2){if(!['--repo','--context','--input'].includes(args[i])||!args[i+1]||args[i+1].startsWith('--')||options[args[i]])throw new Error('参数无效，请运行 --help。');options[args[i]]=args[i+1];}
+  for(let i=0;i<args.length;i+=2){if(!['--repo','--context','--input','--work'].includes(args[i])||!args[i+1]||args[i+1].startsWith('--')||options[args[i]])throw new Error('参数无效，请运行 --help。');options[args[i]]=args[i+1];}
   if(command==='doctor') {
     for(const asset of ['./graph.html','../references/initialize.md','../references/update.md'])await readFile(new URL(asset,import.meta.url));
     return {node:process.version,git:execFileSync('git',['--version'],{encoding:'utf8',windowsHide:true}).trim(),ready:Number(process.versions.node.split('.')[0])>=22};
   }
   if(!options['--repo'])throw new Error('请用 --repo 显式传入当前仓库路径。');
   const repo=options['--repo'];
+  if(command==='resume') {
+    if(!options['--work'] || Object.keys(options).some(key=>!['--repo','--work'].includes(key)))throw new Error('resume 需要 --repo 和 --work，且只接受这两个参数。');
+    return readResumeContext(repo,options['--work']);
+  }
   if(command==='status') {
     const {root,bare}=await resolveRepository(repo);
     return {repositoryPath:root,available:!bare,...await loadWorkRecord(root)};

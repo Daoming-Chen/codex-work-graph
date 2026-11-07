@@ -1,5 +1,6 @@
 import { createWorkAnalysis } from './work-analysis.mjs';
 import { readWorkGraph } from './work-graph.mjs';
+import { readResumeContext } from './work-resume.mjs';
 import { createServer } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { snapshot, commitDetail, worktreeDetail, resolveRepository } from './git.mjs';
@@ -31,7 +32,7 @@ export async function startHttp({ repositoryPath, html, port = 0, now = Date.now
     if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token))) {
       res.writeHead(401).end('Unauthorized'); return;
     }
-    if(workMapOnly&&!['/api/work_graph','/api/work_status','/api/commit'].includes(url.pathname)) {
+    if(workMapOnly&&!['/api/work_graph','/api/work_status','/api/work_resume','/api/commit'].includes(url.pathname)) {
       res.writeHead(404,{'Content-Type':'application/json'}).end(JSON.stringify({error:'独立工作地图不提供此接口，请使用插件 Git 界面。'}));return;
     }
     lastActivity = now();
@@ -55,6 +56,7 @@ export async function startHttp({ repositoryPath, html, port = 0, now = Date.now
         data=await snapshot(root,options);
       }
       else if (url.pathname === '/api/work_graph') data = { ...await readWorkGraph(root), analysis: await analysis.status(root) };
+      else if (url.pathname === '/api/work_resume') data = await readResumeContext(root, url.searchParams.get('workId'));
       else if (url.pathname === '/api/work_status') data = await analysis.status(root);
       else if (url.pathname === '/api/work_analyze') data = await analysis.start(root, body.mode);
       else if (url.pathname === '/api/commit') data = await commitDetail(root, url.searchParams.get('hash') || '');
