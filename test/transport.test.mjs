@@ -12,7 +12,7 @@ import { startHttp } from '../src/http.mjs';
 import { randomUUID } from 'node:crypto';
 import { git } from '../src/git.mjs';
 
-const expectedTools = ['workgraph_work_analyze', 'workgraph_work_status', 'workgraph_work_graph', 'workgraph_open', 'workgraph_context', 'workgraph_commit', 'workgraph_worktree', 'workgraph_files', 'workgraph_diff', 'workgraph_file_content', 'workgraph_repository_info', 'workgraph_commit_info', 'workgraph_ref_info', 'workgraph_resolve', 'workgraph_prepare', 'workgraph_execute', 'workgraph_preferences', 'workgraph_save_preferences'].sort();
+const expectedTools = ['workgraph_work_resume', 'workgraph_work_analyze', 'workgraph_work_status', 'workgraph_work_graph', 'workgraph_open', 'workgraph_context', 'workgraph_commit', 'workgraph_worktree', 'workgraph_files', 'workgraph_diff', 'workgraph_file_content', 'workgraph_repository_info', 'workgraph_commit_info', 'workgraph_ref_info', 'workgraph_resolve', 'workgraph_prepare', 'workgraph_execute', 'workgraph_preferences', 'workgraph_save_preferences'].sort();
 
 let f;
 before(async () => { f = await createFixture(); });

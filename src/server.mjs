@@ -1,5 +1,6 @@
 import { createWorkAnalysis } from './work-analysis.mjs';
 import { readWorkGraph } from './work-graph.mjs';
+import { readResumeContext } from './work-resume.mjs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -68,6 +69,10 @@ export function createMcpServer(html, { contextOptions = {}, analysisOptions = {
     title: '读取工作进展', description: 'Read explicit work records and real local Git commits.',
     inputSchema: { ...repo }, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
   }, safely(async ({ repositoryPath }) => ({ ...await readWorkGraph(requiredRepo(repositoryPath)), analysis: await analysis.status(requiredRepo(repositoryPath)) })));
+  registerAppTool(mcp, 'workgraph_work_resume', {
+    title: '准备只读续接说明', description: 'Read a bounded historical work record and current metadata for manual handoff. Does not send messages, invoke a model, write records, or execute Git actions.',
+    inputSchema: { ...repo, workId: z.string().regex(/^[A-Z][A-Z0-9-]{0,39}$/) }, annotations, _meta: { ui: { resourceUri: uri, visibility: ['app'] } },
+  }, safely(({ repositoryPath, workId }) => readResumeContext(requiredRepo(repositoryPath), workId)));
   registerAppTool(mcp, 'workgraph_work_status', {
     title: '查看工作分析状态', description: 'Read local WorkGraph analysis progress.', inputSchema: repo, annotations, _meta:{ui:{resourceUri:uri,visibility:['app','model']}},
   }, safely(({repositoryPath})=>analysis.status(requiredRepo(repositoryPath))));

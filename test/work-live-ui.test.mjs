@@ -6,7 +6,7 @@ function mount(t, initialCall,options={}) {
   const nodes=new Map();
   function node(id='') {
     const attributes={};
-    const n={id,innerHTML:'',textContent:'',scrollTop:0,style:{setProperty(){}},setAttribute(key,value){attributes[key]=value;},attributes,getBoundingClientRect(){return {height:600};},before(x){nodes.set(x.id,x)},after(x){nodes.set(x.id,x)},classList:{toggle(){},contains(){return true}}};
+    const n={id,innerHTML:'',textContent:'',value:'',scrollTop:0,focus(){this.focused=true;},select(){this.selectionStart=0;this.selectionEnd=this.value.length;},style:{setProperty(){}},setAttribute(key,value){attributes[key]=value;},attributes,getBoundingClientRect(){return {height:600};},before(x){nodes.set(x.id,x)},after(x){nodes.set(x.id,x)},classList:{toggle(){},contains(){return true}}};
     nodes.set(id,n);return n;
   }
   const old=globalThis.document;
@@ -17,7 +17,7 @@ function mount(t, initialCall,options={}) {
   const click=(kind,value)=>$('work-view').onclick({target:{id:kind==='id'?value:'',closest:selector=>kind==='tab'&&selector==='[role="tab"]'?{id:value}:selector===`[data-${kind}]`?{dataset:{[kind]:value}}:null}});
   return {$,ui,click,setCall:fn=>{call=fn;}};
 }
-const sample=()=>({repository:{name:'REPO'},works:[
+const sample=()=>({repository:{name:'REPO',path:'/repo'},works:[
   {id:'A',title:'接口工作',summary:'父级完整摘要',next:'父级下一步',status:'进行中'},
   {id:'A1',parentId:'A',title:'读取接口',summary:'已支持历史读取',next:'补充边界验证',status:'进行中',issues:['验证尚未结束']},
   {id:'A2',parentId:'A',kind:'outcome',title:'旧请求隔离',summary:'已隔离旧请求',status:'已完成',outcomes:['旧响应不能覆盖新工作']},
@@ -235,4 +235,100 @@ test('a failed full refresh clears stale analysis progress and disables analysis
   assert.equal($('work-analysis-status').textContent,'');assert.equal($('work-analyze').disabled,true);
   setCall(async()=>({...sample(),initialized:true,analysis:{state:'idle'}}));await ui.update();
   assert.equal($('work-analyze').disabled,false);assert.equal($('work-analyze').textContent,'更新工作地图');
+});
+
+
+const resumePacket=(id,text,path='/repo')=>({work:{id},repository:{path},generatedAt:'2026-11-07T00:00:00Z',text});
+const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
+
+test('resume preview is explicit read-only text and every copy regenerates its contents',async t=>{
+  const calls=[],copied=[];let revision=0;
+  const {ui,$,click}=mount(t,async(route,args)=>{calls.push({route,args});return route==='work_graph'?sample():resumePacket(args.workId,`历史记录与当前观测 ${++revision} </textarea><script>untrusted</script>`);},{copyText:async text=>copied.push(text)});
+  await ui.update();await click('record','A');assert.equal(calls.length,1);
+  await click('tab','work-tab-resume');assert.equal(calls.at(-1).route,'work_resume');assert.equal(calls.at(-1).args.workId,'A');
+  assert.match($('work-resume-text').value,/观测 1/);assert.match($('work-resume-text').value,/<script>untrusted/);
+  assert.doesNotMatch($('work-detail').innerHTML,/<script>untrusted/);assert.match($('work-detail').innerHTML,/readonly/);
+  assert.match($('work-detail').innerHTML,/工作记录描述上次整理的进展/);
+  await click('id','work-resume-copy');await click('id','work-resume-copy');
+  assert.equal(copied.length,2);assert.match(copied[0],/观测 2/);assert.match(copied[1],/观测 3/);
+  assert.match($('work-resume-status').textContent,/已复制最新续接说明/);
+  assert.ok(calls.every(({route})=>['work_graph','work_resume'].includes(route)));
+});
+
+test('clipboard denial leaves the newly generated text selected for manual copying',async t=>{
+  const {ui,$,click}=mount(t,async(route,args)=>route==='work_graph'?sample():resumePacket(args.workId,'完整续接说明'),{copyText:async()=>{throw Error('permission denied');}});
+  await ui.update();await click('record','A');await click('tab','work-tab-resume');await click('id','work-resume-copy');
+  assert.match($('work-resume-status').textContent,/无法自动复制/);assert.equal($('work-resume-text').value,'完整续接说明');
+  assert.equal($('work-resume-text').focused,true);assert.equal($('work-resume-text').selectionStart,0);assert.equal($('work-resume-text').selectionEnd,6);
+  $('work-resume-text').selectionEnd=0;await click('id','work-resume-select');assert.equal($('work-resume-text').selectionEnd,6);
+});
+
+test('A to B to A repository resets discard late resume previews and copy responses',async t=>{
+  const pending=deferred(),copied=[];
+  const {ui,$,click,setCall}=mount(t,async route=>route==='work_graph'?sample():pending.promise,{copyText:async text=>copied.push(text)});
+  await ui.update();await click('record','A');const oldPreview=click('tab','work-tab-resume');
+  ui.reset();const b=sample();b.repository={name:'B',path:'/other'};setCall(async()=>b);await ui.update();
+  ui.reset();setCall(async(route,args)=>route==='work_graph'?sample():resumePacket(args.workId,'当前 A'));
+  await ui.update();await click('record','A');await click('tab','work-tab-resume');
+  pending.resolve(resumePacket('A','旧 A'));await oldPreview;assert.equal($('work-resume-text').value,'当前 A');
+  const oldCopy=deferred();setCall(async()=>oldCopy.promise);const copying=click('id','work-resume-copy');
+  ui.reset();setCall(async(route,args)=>route==='work_graph'?sample():resumePacket(args.workId,'再次进入 A'));
+  await ui.update();await click('record','A');await click('tab','work-tab-resume');
+  oldCopy.resolve(resumePacket('A','旧复制'));await copying;
+  assert.deepEqual(copied,[]);assert.equal($('work-resume-text').value,'再次进入 A');
+});
+
+test('switching work or leaving the resume tab prevents late responses from reaching the clipboard',async t=>{
+  const copied=[],first=deferred();let pending=first;
+  const {ui,$,click,setCall}=mount(t,async(route,args)=>route==='work_graph'?sample():pending?pending.promise:resumePacket(args.workId,'当前说明'),{copyText:async text=>copied.push(text)});
+  await ui.update();await click('record','A');const preview=click('tab','work-tab-resume');
+  await click('record','B');first.resolve(resumePacket('A','旧预览'));await preview;assert.notEqual($('work-resume-text').value,'旧预览');
+  pending=null;await click('id','work-resume-refresh');assert.equal($('work-resume-text').value,'当前说明');
+  const delayed=deferred();setCall(async()=>delayed.promise);const copying=click('id','work-resume-copy');
+  await click('tab','work-tab-progress');delayed.resolve(resumePacket('B','旧复制'));await copying;assert.deepEqual(copied,[]);
+  assert.match($('work-detail').innerHTML,/说明已整理/);assert.doesNotMatch($('work-detail').innerHTML,/work-resume-text/);
+});
+
+test('a clipboard completion cannot change the details after the selected work changes',async t=>{
+  const copied=deferred();let writes=0;
+  const {ui,$,click}=mount(t,async(route,args)=>route==='work_graph'?sample():resumePacket(args.workId,'已交给系统的说明'),{copyText:()=>{writes++;return copied.promise;}});
+  await ui.update();await click('record','A');await click('tab','work-tab-resume');
+  const copying=click('id','work-resume-copy');await Promise.resolve();assert.equal(writes,1);
+  await click('record','B');const detail=$('work-detail').innerHTML;
+  copied.resolve();await copying;assert.equal($('work-detail').innerHTML,detail);assert.doesNotMatch($('work-resume-status').textContent,/已复制/);
+});
+
+test('resume rejects mismatched packets and clears previews when refreshed records change',async t=>{
+  let packet=resumePacket('B','wrong work'),record=sample();
+  const {ui,$,click}=mount(t,async route=>route==='work_graph'?record:packet,{copyText:async()=>assert.fail('mismatched packets must not be copied')});
+  await ui.update();await click('record','A');await click('tab','work-tab-resume');assert.match($('work-resume-status').textContent,/不匹配/);assert.equal($('work-resume-text').value,'');
+  packet=resumePacket('A','wrong repo','/other');await click('id','work-resume-copy');assert.match($('work-resume-status').textContent,/不匹配/);
+  packet=resumePacket('A','old progress');await click('id','work-resume-refresh');assert.equal($('work-resume-text').value,'old progress');
+  record=sample();record.works[0].summary='外部更新';await ui.update();assert.equal($('work-resume-text').value,'');
+});
+
+test('unassigned history has no resume action and closing invalidates pending previews',async t=>{
+  const data=sample();data.works.push({id:'UNASSIGNED',title:'待归类提交',status:'待归类'});
+  const pending=deferred();
+  const {ui,$,click}=mount(t,async route=>route==='work_graph'?data:pending.promise);
+  await ui.update();await click('record','UNASSIGNED');assert.doesNotMatch($('work-detail').innerHTML,/work-tab-resume/);
+  await click('record','A');const preview=click('tab','work-tab-resume');await click('id','work-close');
+  pending.resolve(resumePacket('A','closed preview'));await preview;assert.equal($('work-detail').hidden,true);assert.notEqual($('work-resume-text').value,'closed preview');
+});
+
+test('missing clipboard API has manual fallback and a failed regeneration removes stale text',async t=>{
+  const original=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{}});
+  t.after(()=>{if(original)Object.defineProperty(globalThis,'navigator',original);else delete globalThis.navigator;});
+  let fail=false;
+  const {ui,$,click}=mount(t,async(route,args)=>{
+    if(route==='work_graph')return sample();
+    if(fail)throw Error('repository unavailable');
+    return resumePacket(args.workId,'手动复制说明');
+  });
+  await ui.update();await click('record','A');await click('tab','work-tab-resume');await click('id','work-resume-copy');
+  assert.match($('work-resume-status').textContent,/无法自动复制/);
+  assert.equal($('work-resume-text').selectionEnd,$('work-resume-text').value.length);
+  fail=true;await click('id','work-resume-copy');
+  assert.equal($('work-resume-text').value,'');assert.match($('work-resume-status').textContent,/repository unavailable/);
 });

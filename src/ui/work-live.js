@@ -1,11 +1,16 @@
 import { icons } from './icons.js';
 // Read-only work projection. Agent-maintained records provide intent; Git provides evidence.
-export function installWorkGraph({call,now=Date.now}) {
+export function installWorkGraph({call,now=Date.now,copyText=async text=>{
+  if(!globalThis.navigator?.clipboard?.writeText)throw new Error('剪贴板不可用。');
+  await navigator.clipboard.writeText(text);
+}}) {
   const $=id=>document.getElementById(id);
   const icon=name=>icons[name].replace('<svg ', '<svg class="icon" aria-hidden="true" focusable="false" ');
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let data,selected=null,query='',filter='全部',generation=0,request=0,patchRequest=0,detail=false,tab='progress',detailRatio=.34,drag=null;
-  let refreshedAt=0,analysisPending=0;
+  let refreshedAt=0,analysisPending=0,resumeRequest=0,workMode=true;
+  let resume={text:'',message:'',busy:false};
+  const clearResume=()=>{resumeRequest++;resume={text:'',message:'',busy:false};};
   const expanded=new Set(),searchCollapsed=new Set();
   const toggle=document.createElement('button');toggle.id='work-mode';toggle.textContent='Git 历史';$('repo-name').after(toggle);
   const brand=document.createElement('strong');brand.className='work-brand';brand.textContent='WorkGraph';toggle.before(brand);
@@ -18,7 +23,7 @@ export function installWorkGraph({call,now=Date.now}) {
   $('work-reload').innerHTML=icon('refresh')+'<span>刷新</span>';
   $('work-theme').innerHTML=icon('color-mode');
   $('work-theme').title='切换明暗主题';
-  const mode=on=>{$('app').classList.toggle('work-mode',on);toggle.textContent=on?'Git 历史':'工作进展';};
+  const mode=on=>{workMode=on;if(!on){clearResume();if(data&&detail)renderDetail();}$('app').classList.toggle('work-mode',on);toggle.textContent=on?'Git 历史':'工作进展';};
   toggle.onclick=()=>mode(!$('app').classList.contains('work-mode'));mode(true);
   const statusClass=status=>status==='已完成'?'done':status==='进行中'?'active':'other';
   const time=value=>value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'—';
@@ -51,7 +56,7 @@ export function installWorkGraph({call,now=Date.now}) {
   }
   function showDetail(on) {$('work-detail').hidden=!on;$('work-resize').hidden=!on;if(on)applySize();}
   function reset() {
-    generation++;request++;patchRequest++;data=null;selected=null;detail=false;tab='progress';query='';filter='全部';expanded.clear();searchCollapsed.clear();analysisPending=0;refreshedAt=0;
+    generation++;request++;patchRequest++;clearResume();data=null;selected=null;detail=false;tab='progress';query='';filter='全部';expanded.clear();searchCollapsed.clear();analysisPending=0;refreshedAt=0;
     $('work-search').value='';$('work-filter').value='全部';$('work-rows').innerHTML='';$('work-detail').innerHTML='';showDetail(false);
     $('work-analysis-status').textContent='';$('work-analyze').disabled=true;$('work-lanes').textContent='';$('work-project').textContent='';$('work-count').textContent='读取工作记录…';$('work-list').scrollTop=0;
   }
@@ -64,8 +69,9 @@ export function installWorkGraph({call,now=Date.now}) {
     const outcomes=outcomeGroups.length?outcomeGroups.map(({owner,values})=>`<p class="muted">${owner.id===w.id?'本层成果':`来自子项：${esc(owner.title)}（${esc(owner.id)}）`}</p><ul>${values.map(value=>`<li>${esc(value)}</li>`).join('')}</ul>`).join(''):'<p class="muted">本工作及子项尚未记录具体成果。</p>';
     const list=(values,empty)=>values?.length?`<ul>${values.map(v=>`<li>${esc(v)}</li>`).join('')}</ul>`:`<p class="muted">${empty}</p>`;
     $('work-detail').innerHTML=`<div class="detail-bar"><div class="work-detail-title">${parent?`<span>${esc(parent.title)} / </span>`:''}<strong>${esc(w.title)}</strong></div><span class="work-status ${statusClass(w.status)}">${esc(w.id==='UNASSIGNED'?'待归类':w.status)}</span><button id="work-close" aria-label="关闭工作详情">收起</button></div>
-      <div class="work-detail-tabs" role="tablist" aria-label="工作详情内容"><button id="work-tab-progress" role="tab" aria-selected="${tab==='progress'}" aria-controls="work-detail-content">进展</button><button id="work-tab-evidence" role="tab" aria-selected="${tab==='evidence'}" aria-controls="work-detail-content">代码依据 <span>${records.length}</span></button><span class="grow"></span><span class="work-updated">记录更新 ${time(w.updatedAt)}</span></div>
-      <div class="work-detail-body" id="work-detail-content" role="tabpanel" aria-labelledby="work-tab-${tab}">${tab==='progress'?w.id==='UNASSIGNED'?`<div class="work-progress-content"><section><h3>归类说明</h3><p>当前加载范围内有 ${records.length} 个提交尚未记录工作归属${data.hasMore?'，历史已截断':''}。此入口不表示工作进度。</p></section><section><h3>下一步</h3><p>在仓库聊天中请 Agent 核对提交归属后更新工作记录。</p><p class="muted">提交不代表验证、完成或用户验收。</p></section></div>`:`<div class="work-progress-content"><section><h3>当前进展</h3><p>${esc(w.summary||'尚未填写进展摘要。')}</p><h3>下一步</h3><p>${esc(w.next||'尚未填写下一步。')}</p></section><section><h3>成果</h3>${outcomes}<h3>问题与边界</h3>${list(w.issues,'尚未记录问题；不代表已完成验证或用户验收。')}</section></div>`:`<div class="work-evidence-content"><p class="work-evidence-note">${w.id==='UNASSIGNED'?'这些提交尚未记录工作归属。':w.parentId?'仅列本工作及子项的关联，不继承父动线的提交。':'包含本动线及子项的明确关联提交，子项来源单独标注。'}提交不代表验证或用户验收。</p>${records.length?`<div class="work-evidence-records">${records.map(r=>{const owner=data.works.find(x=>x.id===r.workId);return `<button class="work-evidence-record" data-patch="${esc(r.hash)}"><code>${esc(r.hash.slice(0,7))}</code><span>${esc(r.title)}${r.workId!==w.id?`<small>来自子项：${esc(owner?.title||r.workId)}</small>`:''}</span><time>${time(r.time)}</time></button>`;}).join('')}</div>`:'<p class="muted">暂无明确关联的提交。</p>'}<pre id="work-real-patch" hidden></pre><details class="work-dirty"><summary>仓库未提交文件 · ${data.dirty.length}</summary><p class="muted">以下文件属于仓库现场，未自动分配给本工作。</p><p class="mono">${data.dirty.map(f=>esc(f.path)).join('<br>')||'工作区干净'}</p></details></div>`}</div>`;
+      <div class="work-detail-tabs" role="tablist" aria-label="工作详情内容"><button id="work-tab-progress" role="tab" aria-selected="${tab==='progress'}" aria-controls="work-detail-content">进展</button><button id="work-tab-evidence" role="tab" aria-selected="${tab==='evidence'}" aria-controls="work-detail-content">代码依据 <span>${records.length}</span></button>${w.id==='UNASSIGNED'?'':`<button id="work-tab-resume" role="tab" aria-selected="${tab==='resume'}" aria-controls="work-detail-content">续接说明</button>`}<span class="grow"></span><span class="work-updated">记录更新 ${time(w.updatedAt)}</span></div>
+      <div class="work-detail-body" id="work-detail-content" role="tabpanel" aria-labelledby="work-tab-${tab}">${tab==='resume'?`<section class="work-resume" aria-label="续接工作说明"><p class="work-resume-note">工作记录描述上次整理的进展；当前信息来自本次读取的仓库快照。可将说明粘贴到聊天中，请 Agent 核对后继续。</p><div class="work-resume-actions"><button id="work-resume-refresh" ${resume.busy?'disabled':''}>${resume.text?'重新生成':'生成续接说明'}</button><button id="work-resume-copy" ${resume.busy||!resume.text?'disabled':''}>复制最新说明</button><button id="work-resume-select" ${resume.busy||!resume.text?'disabled':''}>选择全文</button></div><p id="work-resume-status" role="status"></p><textarea id="work-resume-text" aria-label="续接说明全文" readonly spellcheck="false"></textarea></section>`:tab==='progress'?w.id==='UNASSIGNED'?`<div class="work-progress-content"><section><h3>归类说明</h3><p>当前加载范围内有 ${records.length} 个提交尚未记录工作归属${data.hasMore?'，历史已截断':''}。此入口不表示工作进度。</p></section><section><h3>下一步</h3><p>在仓库聊天中请 Agent 核对提交归属后更新工作记录。</p><p class="muted">提交不代表验证、完成或用户验收。</p></section></div>`:`<div class="work-progress-content"><section><h3>当前进展</h3><p>${esc(w.summary||'尚未填写进展摘要。')}</p><h3>下一步</h3><p>${esc(w.next||'尚未填写下一步。')}</p></section><section><h3>成果</h3>${outcomes}<h3>问题与边界</h3>${list(w.issues,'尚未记录问题；不代表已完成验证或用户验收。')}</section></div>`:`<div class="work-evidence-content"><p class="work-evidence-note">${w.id==='UNASSIGNED'?'这些提交尚未记录工作归属。':w.parentId?'仅列本工作及子项的关联，不继承父动线的提交。':'包含本动线及子项的明确关联提交，子项来源单独标注。'}提交不代表验证或用户验收。</p>${records.length?`<div class="work-evidence-records">${records.map(r=>{const owner=data.works.find(x=>x.id===r.workId);return `<button class="work-evidence-record" data-patch="${esc(r.hash)}"><code>${esc(r.hash.slice(0,7))}</code><span>${esc(r.title)}${r.workId!==w.id?`<small>来自子项：${esc(owner?.title||r.workId)}</small>`:''}</span><time>${time(r.time)}</time></button>`;}).join('')}</div>`:'<p class="muted">暂无明确关联的提交。</p>'}<pre id="work-real-patch" hidden></pre><details class="work-dirty"><summary>仓库未提交文件 · ${data.dirty.length}</summary><p class="muted">以下文件属于仓库现场，未自动分配给本工作。</p><p class="mono">${data.dirty.map(f=>esc(f.path)).join('<br>')||'工作区干净'}</p></details></div>`}</div>`;
+    if(tab==='resume'){$('work-resume-text').value=resume.text;$('work-resume-status').textContent=resume.message||'点击生成续接说明。生成和复制只读取仓库，不会启动分析或执行 Git 写入。';}
     showDetail(true);
   }
   function render({detailOnly=false,preserveDetail=false}={}) {
@@ -80,7 +86,7 @@ export function installWorkGraph({call,now=Date.now}) {
       visible.push({work,depth,open,hasChildren:nested.some(child=>allowed.has(child.id))});if(open)nested.forEach(child=>walk(child,depth+1));
     };
     roots.forEach(w=>walk(w,0));
-    if(selected&&!allowed.has(selected)){selected=null;detail=false;}
+    if(selected&&!allowed.has(selected)){clearResume();selected=null;detail=false;}
     $('work-project').textContent=data.repository.name;
     $('work-lanes').innerHTML=`<span class="work-total"><strong>${normalRoots.length}</strong> 条动线（仓库总计）</span>`+['进行中','已完成','已搁置','待开始'].map(status=>{const count=normalRoots.filter(w=>w.status===status).length;return count?`<span class="work-stat ${statusClass(status)}"><i></i><strong>${count}</strong> ${status}</span>`:'';}).join('');
     $('work-count').textContent=`${query||filter!=='全部'?`匹配 ${normalRoots.filter(w=>matches.has(w.id)).length} 条动线 · ${data.works.filter(w=>w.parentId&&matches.has(w.id)).length} 项子工作与成果 · ${matches.has('UNASSIGNED')?'1 个待归类入口 · ':''}`:''}仓库总计 ${normalRoots.length} 条动线 · ${data.works.filter(w=>w.parentId).length} 项子工作与成果 · ${data.records.length} 个提交${data.hasMore?' · 历史已截断':''}`;
@@ -112,8 +118,8 @@ export function installWorkGraph({call,now=Date.now}) {
   }
   async function update() {
     const epoch=generation,seq=++request;
-    try{const result=await call('work_graph');if(epoch!==generation||seq!==request)return;const changed=JSON.stringify([data?.repository,data?.works,data?.records,data?.dirty])!==JSON.stringify([result.repository,result.works,result.records,result.dirty]);data=result;refreshedAt=now();renderAnalysis();if(changed){patchRequest++;render();}}
-    catch(error){if(epoch===generation&&seq===request){patchRequest++;data=null;selected=null;detail=false;$('work-detail').innerHTML='';showDetail(false);$('work-analysis-status').textContent='';$('work-analyze').disabled=true;$('work-lanes').textContent='';$('work-rows').textContent=error.message;$('work-count').textContent='工作记录读取失败';}}
+    try{const result=await call('work_graph');if(epoch!==generation||seq!==request)return;const changed=JSON.stringify([data?.repository,data?.works,data?.records,data?.dirty])!==JSON.stringify([result.repository,result.works,result.records,result.dirty]);data=result;refreshedAt=now();renderAnalysis();if(changed){patchRequest++;clearResume();render();}}
+    catch(error){if(epoch===generation&&seq===request){patchRequest++;clearResume();data=null;selected=null;detail=false;$('work-detail').innerHTML='';showDetail(false);$('work-analysis-status').textContent='';$('work-analyze').disabled=true;$('work-lanes').textContent='';$('work-rows').textContent=error.message;$('work-count').textContent='工作记录读取失败';}}
   }
   async function poll() {
     if(!data||analysisPending||document.hidden)return;
@@ -128,14 +134,49 @@ export function installWorkGraph({call,now=Date.now}) {
       if(changed||(status.state!=='running'&&now()-refreshedAt>=15000))await update();
     } catch(error){if(epoch===generation&&seq===request&&data?.analysis===previous)$('work-analysis-status').textContent=`分析状态读取失败：${error.message}`;}
   }
+  async function generateResume(copy=false) {
+    const id=selected,path=data?.repository.path,epoch=generation,seq=++resumeRequest;
+    if(!data||!detail||tab!=='resume'||id==='UNASSIGNED'||!workMode)return;
+    const current=()=>epoch===generation&&seq===resumeRequest&&selected===id&&data?.repository.path===path&&detail&&tab==='resume'&&workMode;
+    resume={text:'',message:copy?'正在读取最新状态并准备复制…':'正在生成续接说明…',busy:true};renderDetail();
+    try {
+      const packet=await call('work_resume',{workId:id});
+      if(!current())return;
+      if(packet?.work?.id!==id||packet?.repository?.path!==path||typeof packet.text!=='string'||!packet.text.trim()||packet.text.length>65536)throw new Error('续接说明与当前仓库或工作项不匹配，请刷新后重试。');
+      resume={text:packet.text,message:copy?'正在复制最新说明…':'说明已生成。复制时会再次读取当前状态。',busy:copy};renderDetail();
+      if(copy) {
+        // Async Clipboard has no cancellation API. Check identity immediately
+        // before handing data to it; a later completion must not alter new UI.
+        if(!current())return;
+        try {
+          await copyText(packet.text);
+          if(!current())return;
+          resume={text:packet.text,message:'已复制最新续接说明，可粘贴到聊天中。',busy:false};renderDetail();
+        } catch {
+          if(!current())return;
+          resume={text:packet.text,message:'无法自动复制。已选择下方全文，请使用系统复制命令。',busy:false};renderDetail();selectResume();
+        }
+      }
+    } catch(error) {
+      if(!current())return;
+      resume={text:'',message:`续接说明生成失败：${error.message}`,busy:false};renderDetail();
+    }
+  }
+  function selectResume() {
+    if(!resume.text||resume.busy||tab!=='resume')return;
+    $('work-resume-text').focus();$('work-resume-text').select();
+  }
   root.onclick=async event=>{
     const expander=event.target.closest('[data-expand]');
     if(expander){const id=expander.dataset.expand;const autoOpen=(query||filter!=='全部')&&!searchCollapsed.has(id);if(expanded.has(id)||autoOpen){expanded.delete(id);searchCollapsed.add(id);}else{expanded.add(id);searchCollapsed.delete(id);}render({preserveDetail:true});return;}
     const row=event.target.closest('[data-record]');
-    if(row){patchRequest++;selected=row.dataset.record;detail=true;render();return;}
-    if(event.target.id==='work-close'){patchRequest++;detail=false;showDetail(false);return;}
+    if(row){patchRequest++;clearResume();selected=row.dataset.record;if(selected==='UNASSIGNED'&&tab==='resume')tab='progress';detail=true;render();return;}
+    if(event.target.id==='work-close'){patchRequest++;clearResume();detail=false;showDetail(false);return;}
+    if(event.target.id==='work-resume-refresh'){await generateResume();return;}
+    if(event.target.id==='work-resume-copy'){await generateResume(true);return;}
+    if(event.target.id==='work-resume-select'){selectResume();return;}
     const tabButton=event.target.closest('[role="tab"]');
-    if(tabButton){patchRequest++;tab=tabButton.id==='work-tab-evidence'?'evidence':'progress';render({detailOnly:true});return;}
+    if(tabButton){patchRequest++;clearResume();tab=tabButton.id==='work-tab-evidence'?'evidence':tabButton.id==='work-tab-resume'?'resume':'progress';render({detailOnly:true});if(tab==='resume')await generateResume();return;}
     const commit=event.target.closest('[data-patch]');
     if(commit){
       const id=selected,hash=commit.dataset.patch,epoch=generation,seq=++patchRequest,pane=$('work-real-patch');
