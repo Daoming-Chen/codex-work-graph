@@ -7,11 +7,11 @@ import { execFileSync } from "node:child_process";
 // src/work-analysis.mjs
 import { spawn as spawn2, execFile as execFile2 } from "node:child_process";
 import { promisify as promisify2 } from "node:util";
-import { readFile as readFile3, writeFile, mkdir, rename, unlink, lstat as lstat3, open as open2, mkdtemp, rm } from "node:fs/promises";
+import { readFile as readFile4, writeFile, mkdir, rename, unlink as unlink2, lstat as lstat4, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID as randomUUID2 } from "node:crypto";
 import { createReadStream } from "node:fs";
-import path4 from "node:path";
+import path5 from "node:path";
 
 // src/git.mjs
 import { execFile } from "node:child_process";
@@ -665,6 +665,60 @@ async function collectWorkContext({ root, mode = "initialize", previous, baselin
   return context;
 }
 
+// src/file-lock.mjs
+import { lstat as lstat3, open as open2, link, readFile as readFile3, unlink } from "node:fs/promises";
+import path4 from "node:path";
+import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
+async function withFileLock(filename2, task, { timeoutMs = 5e3, retryMs = 25, label = "\u504F\u597D\u4FDD\u5B58\u9501" } = {}) {
+  const token = randomUUID();
+  const temporary = path4.join(path4.dirname(filename2), `${path4.basename(filename2)}.${token}.tmp`);
+  const owner = JSON.stringify({ version: 1, token, pid: process.pid, createdAt: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
+  let handle, acquired = false, identity2;
+  try {
+    handle = await open2(temporary, "wx", 384);
+    await handle.writeFile(owner, "utf8");
+    await handle.sync();
+    identity2 = await handle.stat();
+    await handle.close();
+    handle = void 0;
+    const deadline = performance.now() + timeoutMs;
+    while (!acquired) {
+      try {
+        await link(temporary, filename2);
+        acquired = true;
+      } catch (error) {
+        if (error.code !== "EEXIST") throw new Error(`\u65E0\u6CD5\u521B\u5EFA${label}\uFF1B\u9700\u8981\u652F\u6301\u540C\u76EE\u5F55\u786C\u94FE\u63A5\u7684\u672C\u5730\u6587\u4EF6\u7CFB\u7EDF\u3002`, { cause: error });
+        const info = await lstat3(filename2).catch((check) => {
+          if (check.code === "ENOENT") return null;
+          throw check;
+        });
+        if (info && (!info.isFile() || info.isSymbolicLink())) throw new Error(`${label}\u5FC5\u987B\u662F\u666E\u901A\u6587\u4EF6\uFF0C\u4E0D\u80FD\u4F7F\u7528\u7B26\u53F7\u94FE\u63A5\u3002`);
+        if (performance.now() >= deadline) throw new Error(`${label}\u7B49\u5F85\u8D85\u65F6\uFF1A${filename2}\u3002\u53E6\u4E00\u4E2A WorkGraph \u53EF\u80FD\u6B63\u5728\u4FDD\u5B58\uFF1B\u82E5\u8FDB\u7A0B\u5F02\u5E38\u9000\u51FA\uFF0C\u8BF7\u5148\u505C\u6B62\u8BE5\u4ED3\u5E93\u7684\u6240\u6709 WorkGraph \u8FDB\u7A0B\uFF0C\u786E\u8BA4\u6CA1\u6709\u4FDD\u5B58\u6B63\u5728\u6267\u884C\u540E\u518D\u79FB\u9664\u6B64\u9501\u6587\u4EF6\u3002`);
+        await delay(retryMs);
+      }
+    }
+    await unlink(temporary);
+    return await task();
+  } finally {
+    await handle?.close().catch(() => {
+    });
+    try {
+      await unlink(temporary).catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+    } finally {
+      if (acquired) {
+        const current = await lstat3(filename2).catch((error) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        });
+        if (current?.isFile() && !current.isSymbolicLink() && current.size === Buffer.byteLength(owner) && current.dev === identity2?.dev && current.ino === identity2?.ino && await readFile3(filename2, "utf8") === owner) await unlink(filename2);
+      }
+    }
+  }
+}
+
 // src/work-analysis.mjs
 var execute2 = promisify2(execFile2);
 var digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -673,12 +727,12 @@ var timestamp = (value) => new Date(value).toISOString();
 async function loadLastRun(root) {
   try {
     for (const name of [".workgraph", ".workgraph/runtime"]) {
-      const info2 = await lstat3(path4.join(root, name));
+      const info2 = await lstat4(path5.join(root, name));
       if (!info2.isDirectory() || info2.isSymbolicLink()) return null;
     }
-    const filename2 = path4.join(root, ".workgraph/runtime/last-analysis.json"), info = await lstat3(filename2);
+    const filename2 = path5.join(root, ".workgraph/runtime/last-analysis.json"), info = await lstat4(filename2);
     if (!info.isFile() || info.isSymbolicLink() || info.size > 4096) return null;
-    const value = JSON.parse(await readFile3(filename2, "utf8"));
+    const value = JSON.parse(await readFile4(filename2, "utf8"));
     if (value.version !== 1 || !["initialize", "update"].includes(value.mode) || !["idle", "failed"].includes(value.state)) return null;
     if (![value.startedAt, value.completedAt].every((v) => typeof v === "string" && Number.isFinite(Date.parse(v)))) return null;
     if (!Number.isFinite(value.elapsedMs) || value.elapsedMs < 0 || !value.durationsMs || typeof value.durationsMs !== "object") return null;
@@ -696,12 +750,12 @@ async function loadLastRun(root) {
   }
 }
 async function saveLastRun(directory, run) {
-  const temporary = path4.join(directory, "runtime", `timing-${randomUUID()}.tmp`);
+  const temporary = path5.join(directory, "runtime", `timing-${randomUUID2()}.tmp`);
   try {
     await writeFile(temporary, JSON.stringify(run) + "\n", { flag: "wx" });
-    await rename(temporary, path4.join(directory, "runtime/last-analysis.json"));
+    await rename(temporary, path5.join(directory, "runtime/last-analysis.json"));
   } finally {
-    await unlink(temporary).catch(() => {
+    await unlink2(temporary).catch(() => {
     });
   }
 }
@@ -715,7 +769,7 @@ async function workFingerprint(root) {
   const untracked = (await git(root, ["ls-files", "--others", "--exclude-standard", "-z", "--", ...exclude])).split("\0").filter(Boolean);
   const hash2 = createHash("sha256").update(JSON.stringify({ head, branch, diff, staged, status }));
   for (const name of untracked.sort()) {
-    const file = path4.join(root, name), info = await lstat3(file);
+    const file = path5.join(root, name), info = await lstat4(file);
     hash2.update(name);
     if (info.isFile()) {
       for await (const chunk of createReadStream(file)) hash2.update(chunk);
@@ -763,7 +817,7 @@ async function skillText(mode) {
   const name = mode === "initialize" ? "initialize" : "update";
   for (const base of [new URL("../skills/workgraph/references/", import.meta.url), new URL("../references/", import.meta.url)]) {
     try {
-      return await readFile3(new URL(`${name}.md`, base), "utf8");
+      return await readFile4(new URL(`${name}.md`, base), "utf8");
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
@@ -792,9 +846,9 @@ async function runCodexAnalysis({ root, mode, previous, baseline, context, signa
     command = stdout.trim().split(/\r?\n/)[0];
   }
   if (/\.(cmd|bat|ps1)$/i.test(command)) throw new Error("WORKGRAPH_CODEX_PATH \u8BF7\u6307\u5B9A Codex \u53EF\u6267\u884C\u6587\u4EF6\u3002");
-  const temp = await mkdtemp(path4.join(tmpdir(), "workgraph-analysis-"));
+  const temp = await mkdtemp(path5.join(tmpdir(), "workgraph-analysis-"));
   try {
-    const schema = path4.join(temp, "schema.json");
+    const schema = path5.join(temp, "schema.json");
     await writeFile(schema, JSON.stringify(mode === "update" ? analysisUpdateSchema : analysisSchema));
     context ??= await collectWorkContext({ root, mode, previous, baseline, signal });
     const prompt = await analysisPrompt({ root, mode, previous, baseline, context });
@@ -844,9 +898,9 @@ async function runCodexAnalysis({ root, mode, previous, baseline, context, signa
   }
 }
 async function safeDirectory(root) {
-  const directory = path4.join(root, ".workgraph");
+  const directory = path5.join(root, ".workgraph");
   await mkdir(directory, { recursive: true });
-  const info = await lstat3(directory);
+  const info = await lstat4(directory);
   if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(".workgraph \u5FC5\u987B\u662F\u666E\u901A\u76EE\u5F55\u3002");
   return directory;
 }
@@ -880,101 +934,95 @@ function createWorkAnalysis({ runner = runCodexAnalysis, fingerprint = workFinge
     e.phaseStartedAt = name ? timestamp(time) : null;
   }
   async function perform(e, mode) {
-    let lease, directory;
-    try {
-      directory = await safeDirectory(e.root);
-      try {
-        await writeFile(path4.join(directory, ".gitignore"), "runtime/\nstate-*.tmp\n", { flag: "wx" });
-      } catch (error) {
-        if (error.code !== "EEXIST") throw error;
-      }
-      const runtime = path4.join(directory, "runtime");
-      await mkdir(runtime, { recursive: true });
-      if ((await lstat3(runtime)).isSymbolicLink()) throw new Error("\u8FD0\u884C\u76EE\u5F55\u4E0D\u80FD\u662F\u7B26\u53F7\u94FE\u63A5\u3002");
-      const lock = path4.join(runtime, "analysis.lock");
-      try {
-        lease = await open2(lock, "wx");
-      } catch (error) {
-        if (error.code !== "EEXIST") throw error;
-        const owner = JSON.parse(await readFile3(lock, "utf8"));
-        try {
-          process.kill(owner.pid, 0);
-          throw new Error("\u53E6\u4E00\u4E2A WorkGraph \u6B63\u5728\u5206\u6790\u6B64\u4ED3\u5E93\u3002");
-        } catch (check) {
-          if (check.code !== "ESRCH") throw check;
-        }
-        await unlink(lock);
-        lease = await open2(lock, "wx");
-      }
-      await lease.writeFile(JSON.stringify({ pid: process.pid }));
-      const { manifest: previous } = await loadWorkRecord(e.root);
-      phase(e, "fingerprint");
-      const baseline = await fingerprint(e.root);
-      if (disposed) throw new Error("\u670D\u52A1\u5DF2\u5173\u95ED\u3002");
-      e.controller = new AbortController();
-      phase(e, "collect");
-      const context = await collector({ root: e.root, mode, previous, baseline, signal: e.controller.signal });
-      if (disposed) throw new Error("\u670D\u52A1\u5DF2\u5173\u95ED\u3002");
-      phase(e, "analysis");
-      const result = await runner({ root: e.root, mode, previous, baseline, context, signal: e.controller.signal });
-      if (disposed) throw new Error("\u670D\u52A1\u5DF2\u5173\u95ED\u3002");
-      phase(e, "validate");
-      const works = mergeAnalysisResult(previous, result, mode);
-      validateWorkManifest({ version: result.version, works });
-      const ids = new Set(works.map((w) => w.id));
-      if (previous.works.some((w) => !ids.has(w.id))) throw new Error("\u5206\u6790\u7ED3\u679C\u4E22\u5931\u5DF2\u6709\u5DE5\u4F5C\u9879\uFF0C\u539F\u8BB0\u5F55\u5DF2\u4FDD\u7559\u3002");
-      phase(e, "recheck");
-      const current = await fingerprint(e.root);
-      if (current.fingerprint !== baseline.fingerprint) throw new Error("\u5206\u6790\u671F\u95F4\u4EE3\u7801\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u8BF7\u6C42\u66F4\u65B0\u3002");
-      if (digest(JSON.stringify((await loadWorkRecord(e.root)).manifest)) !== digest(JSON.stringify(previous))) throw new Error("\u5DE5\u4F5C\u8BB0\u5F55\u5DF2\u88AB\u5176\u4ED6\u8FDB\u7A0B\u4FEE\u6539\uFF0C\u539F\u8BB0\u5F55\u5DF2\u4FDD\u7559\u3002");
-      phase(e, "save");
-      const updatedAt = new Date(now()).toISOString();
-      for (const work of works) {
-        const old = previous.works.find((w) => w.id === work.id);
-        const comparable = (w) => JSON.stringify(Object.fromEntries(Object.entries(w).filter(([key]) => key !== "updatedAt").sort(([a], [b]) => a.localeCompare(b))));
-        work.updatedAt = old && comparable(old) === comparable(work) ? old.updatedAt : updatedAt;
-      }
-      const scope = context.scope === "incremental" ? "\u4E0A\u6B21\u5206\u6790\u57FA\u7EBF\u4E4B\u540E\u7684\u63D0\u4EA4\u4E0E\u76F8\u5173\u6587\u4EF6\u53D8\u5316" : "\u6709\u754C\u9879\u76EE\u5730\u56FE\u4E0E HEAD \u6700\u8FD1\u6700\u591A 300 \u6761\u63D0\u4EA4";
-      const record = { version: 1, works, automation: { enabled: false }, analysis: { ...baseline, updatedAt, scope } };
-      const worktree = normalizeWorktreeSnapshot(context.worktree);
-      if (worktree) record.analysis.worktree = worktree;
-      let payload = JSON.stringify(record, null, 2) + "\n";
-      if (Buffer.byteLength(payload) > 262144 && worktree) {
-        record.analysis.worktree = { version: 1, dirtyPaths: [], complete: false };
-        payload = JSON.stringify(record, null, 2) + "\n";
-        if (Buffer.byteLength(payload) > 262144) {
-          delete record.analysis.worktree;
-          payload = JSON.stringify(record, null, 2) + "\n";
-        }
-      }
-      if (Buffer.byteLength(payload) > 262144) throw new Error("\u5DE5\u4F5C\u8BB0\u5F55\u8D85\u8FC7 256 KiB\u3002");
-      const temporary = path4.join(directory, `state-${randomUUID()}.tmp`);
-      try {
-        await writeFile(temporary, payload, { flag: "wx" });
-        await rename(temporary, path4.join(directory, "state.json"));
-      } finally {
-        await unlink(temporary).catch(() => {
-        });
-      }
-      e.state = "idle";
-      e.error = null;
-    } catch (error) {
-      e.state = "failed";
-      e.error = error.message;
-    } finally {
+    let directory, finalized = false, saved = false;
+    function finish() {
       const failedPhase = e.state === "failed" ? e.phase : null;
       phase(e, null);
       e.completedMs = now();
       e.completedAt = timestamp(e.completedMs);
       e.lastRun = { version: 1, mode, state: e.state, startedAt: e.startedAt, completedAt: e.completedAt, elapsedMs: Math.max(0, e.completedMs - e.startedMs), durationsMs: { ...e.durationsMs }, failedPhase };
       if (execution === "agent-save") e.lastRun.execution = "agent-save";
-      if (lease) await saveLastRun(directory, e.lastRun).catch(() => {
-      });
-      if (lease) {
-        await lease.close();
-        await unlink(path4.join(directory, "runtime/analysis.lock")).catch(() => {
-        });
+      finalized = true;
+    }
+    try {
+      directory = await safeDirectory(e.root);
+      try {
+        await writeFile(path5.join(directory, ".gitignore"), "runtime/\nstate-*.tmp\n", { flag: "wx" });
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
       }
+      const runtime = path5.join(directory, "runtime");
+      await mkdir(runtime, { recursive: true });
+      if ((await lstat4(runtime)).isSymbolicLink()) throw new Error("\u8FD0\u884C\u76EE\u5F55\u4E0D\u80FD\u662F\u7B26\u53F7\u94FE\u63A5\u3002");
+      await withFileLock(path5.join(runtime, "analysis.lock"), async () => {
+        try {
+          if (await resolveAnalysisMode(e.root) !== mode) throw new Error("\u5DE5\u4F5C\u5730\u56FE\u6A21\u5F0F\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u8BF7\u6C42\u66F4\u65B0\u3002");
+          const { manifest: previous } = await loadWorkRecord(e.root);
+          phase(e, "fingerprint");
+          const baseline = await fingerprint(e.root);
+          if (disposed) throw new Error("\u670D\u52A1\u5DF2\u5173\u95ED\u3002");
+          e.controller = new AbortController();
+          phase(e, "collect");
+          const context = await collector({ root: e.root, mode, previous, baseline, signal: e.controller.signal });
+          if (disposed) throw new Error("\u670D\u52A1\u5DF2\u5173\u95ED\u3002");
+          phase(e, "analysis");
+          const result = await runner({ root: e.root, mode, previous, baseline, context, signal: e.controller.signal });
+          if (disposed) throw new Error("\u670D\u52A1\u5DF2\u5173\u95ED\u3002");
+          phase(e, "validate");
+          const works = mergeAnalysisResult(previous, result, mode);
+          validateWorkManifest({ version: result.version, works });
+          const ids = new Set(works.map((w) => w.id));
+          if (previous.works.some((w) => !ids.has(w.id))) throw new Error("\u5206\u6790\u7ED3\u679C\u4E22\u5931\u5DF2\u6709\u5DE5\u4F5C\u9879\uFF0C\u539F\u8BB0\u5F55\u5DF2\u4FDD\u7559\u3002");
+          phase(e, "recheck");
+          const current = await fingerprint(e.root);
+          if (current.fingerprint !== baseline.fingerprint) throw new Error("\u5206\u6790\u671F\u95F4\u4EE3\u7801\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u8BF7\u6C42\u66F4\u65B0\u3002");
+          if (digest(JSON.stringify((await loadWorkRecord(e.root)).manifest)) !== digest(JSON.stringify(previous))) throw new Error("\u5DE5\u4F5C\u8BB0\u5F55\u5DF2\u88AB\u5176\u4ED6\u8FDB\u7A0B\u4FEE\u6539\uFF0C\u539F\u8BB0\u5F55\u5DF2\u4FDD\u7559\u3002");
+          phase(e, "save");
+          const updatedAt = new Date(now()).toISOString();
+          for (const work of works) {
+            const old = previous.works.find((w) => w.id === work.id);
+            const comparable = (w) => JSON.stringify(Object.fromEntries(Object.entries(w).filter(([key]) => key !== "updatedAt").sort(([a], [b]) => a.localeCompare(b))));
+            work.updatedAt = old && comparable(old) === comparable(work) ? old.updatedAt : updatedAt;
+          }
+          const scope = context.scope === "incremental" ? "\u4E0A\u6B21\u5206\u6790\u57FA\u7EBF\u4E4B\u540E\u7684\u63D0\u4EA4\u4E0E\u76F8\u5173\u6587\u4EF6\u53D8\u5316" : "\u6709\u754C\u9879\u76EE\u5730\u56FE\u4E0E HEAD \u6700\u8FD1\u6700\u591A 300 \u6761\u63D0\u4EA4";
+          const record = { version: 1, works, automation: { enabled: false }, analysis: { ...baseline, updatedAt, scope } };
+          const worktree = normalizeWorktreeSnapshot(context.worktree);
+          if (worktree) record.analysis.worktree = worktree;
+          let payload = JSON.stringify(record, null, 2) + "\n";
+          if (Buffer.byteLength(payload) > 262144 && worktree) {
+            record.analysis.worktree = { version: 1, dirtyPaths: [], complete: false };
+            payload = JSON.stringify(record, null, 2) + "\n";
+            if (Buffer.byteLength(payload) > 262144) {
+              delete record.analysis.worktree;
+              payload = JSON.stringify(record, null, 2) + "\n";
+            }
+          }
+          if (Buffer.byteLength(payload) > 262144) throw new Error("\u5DE5\u4F5C\u8BB0\u5F55\u8D85\u8FC7 256 KiB\u3002");
+          const temporary = path5.join(directory, `state-${randomUUID2()}.tmp`);
+          try {
+            await writeFile(temporary, payload, { flag: "wx" });
+            await rename(temporary, path5.join(directory, "state.json"));
+          } finally {
+            await unlink2(temporary).catch(() => {
+            });
+          }
+          saved = true;
+          e.state = "idle";
+          e.error = null;
+        } catch (error) {
+          e.state = "failed";
+          e.error = error.message;
+        } finally {
+          finish();
+          await saveLastRun(directory, e.lastRun).catch(() => {
+          });
+        }
+      }, { timeoutMs: 0, label: "\u5DE5\u4F5C\u5730\u56FE\u4FDD\u5B58\u9501" });
+    } catch (error) {
+      e.state = "failed";
+      e.error = saved ? `\u5DE5\u4F5C\u8BB0\u5F55\u5DF2\u4FDD\u5B58\uFF0C\u4F46\u4FDD\u5B58\u9501\u91CA\u653E\u5931\u8D25\uFF1A${error.message}\u3002\u8BF7\u5148\u67E5\u8BE2\u72B6\u6001\u6838\u5BF9\u8BB0\u5F55\uFF0C\u518D\u6309\u6545\u969C\u6392\u67E5\u6062\u590D\u9501\uFF0C\u4E0D\u8981\u76F4\u63A5\u91CD\u590D\u4FDD\u5B58\u3002` : error.message;
+      if (!finalized) finish();
+    } finally {
       e.pending = null;
       e.controller = null;
     }
@@ -1029,13 +1077,13 @@ import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 
 // src/actions.mjs
-import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
-import { realpath as realpath3, lstat as lstat4, open as open3, readlink, access } from "node:fs/promises";
+import { createHash as createHash2, randomUUID as randomUUID3 } from "node:crypto";
+import { realpath as realpath3, lstat as lstat5, open as open3, readlink, access } from "node:fs/promises";
 import { createReadStream as createReadStream2 } from "node:fs";
-import path7 from "node:path";
+import path8 from "node:path";
 
 // src/remote-actions.mjs
-import path5 from "node:path";
+import path6 from "node:path";
 var remoteActionNames = ["fetch", "pull", "push", "remote-add", "remote-edit", "remote-remove", "remote-prune", "remote-branch-delete", "branch-rename", "branch-delete", "tag-add", "tag-delete", "tag-push", "checkout", "track"];
 var fields = {
   fetch: ["remote", "prune"],
@@ -1061,7 +1109,7 @@ var text = (value) => {
 var confirm = (payload) => {
   if (payload.confirm !== true) throw new Error("\u8BF7\u660E\u786E\u786E\u8BA4\u6B64\u5220\u9664\u6216\u6E05\u7406\u64CD\u4F5C\u3002");
 };
-var same = (a, b) => process.platform === "win32" ? path5.resolve(a).toLowerCase() === path5.resolve(b).toLowerCase() : path5.resolve(a) === path5.resolve(b);
+var same = (a, b) => process.platform === "win32" ? path6.resolve(a).toLowerCase() === path6.resolve(b).toLowerCase() : path6.resolve(a) === path6.resolve(b);
 async function validateRemoteAction(root, action, payload, { workState: workState2, resolveRef: resolveRef2, hash: hash2 }) {
   if (Object.keys(payload).some((k) => !fields[action].includes(k))) throw new Error("\u64CD\u4F5C\u5305\u542B\u672A\u77E5\u5B57\u6BB5\u3002");
   for (const key of ["prune", "setUpstream", "force", "signed"]) if (payload[key] !== void 0 && typeof payload[key] !== "boolean") throw new Error(`${key} \u5FC5\u987B\u4E3A\u5E03\u5C14\u503C\u3002`);
@@ -1122,7 +1170,7 @@ async function validateRemoteAction(root, action, payload, { workState: workStat
     } else remote(name);
     if (["remote-add", "remote-edit"].includes(action)) {
       const url = text(payload.url);
-      if (url.includes("::") || !path5.isAbsolute(url) && !/^(https?:\/\/|ssh:\/\/|git:\/\/|file:\/\/|[^\s/:]+@[^\s/:]+:)/i.test(url)) throw new Error("\u8BF7\u8F93\u5165 SSH\u3001HTTPS\u3001Git\u3001file URL \u6216\u672C\u5730\u7EDD\u5BF9\u8DEF\u5F84\u3002");
+      if (url.includes("::") || !path6.isAbsolute(url) && !/^(https?:\/\/|ssh:\/\/|git:\/\/|file:\/\/|[^\s/:]+@[^\s/:]+:)/i.test(url)) throw new Error("\u8BF7\u8F93\u5165 SSH\u3001HTTPS\u3001Git\u3001file URL \u6216\u672C\u5730\u7EDD\u5BF9\u8DEF\u5F84\u3002");
       args = action === "remote-add" ? ["remote", "add", "--", name, url] : ["remote", "set-url", "--", name, url];
     } else {
       confirm(payload);
@@ -1177,8 +1225,8 @@ async function validateRemoteAction(root, action, payload, { workState: workStat
 }
 
 // src/history-actions.mjs
-import { readFile as readFile4 } from "node:fs/promises";
-import path6 from "node:path";
+import { readFile as readFile5 } from "node:fs/promises";
+import path7 from "node:path";
 var historyActionNames = ["merge", "rebase", "cherry-pick", "revert", "reset", "drop", "stash-create", "stash-apply", "stash-pop", "stash-drop", "stash-branch", "discard", "clean", "stage-resolved", "continue", "abort"];
 var fields2 = {
   merge: ["ref", "ffMode"],
@@ -1220,7 +1268,7 @@ var attached = (state2) => {
 async function operationState(cwd, hash2) {
   const directory = (await git(cwd, ["rev-parse", "--absolute-git-dir"])).trim();
   const files = ["MERGE_HEAD", "MERGE_MSG", "ORIG_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "sequencer/todo", "sequencer/head", "sequencer/opts", "rebase-merge/head-name", "rebase-merge/onto", "rebase-merge/orig-head", "rebase-merge/git-rebase-todo", "rebase-merge/done", "rebase-apply/head-name", "rebase-apply/onto", "rebase-apply/orig-head", "rebase-apply/next", "rebase-apply/last"];
-  return hash2(JSON.stringify(await Promise.all(files.map(async (name) => [name, await readFile4(path6.join(directory, name), "utf8").catch((e) => {
+  return hash2(JSON.stringify(await Promise.all(files.map(async (name) => [name, await readFile5(path7.join(directory, name), "utf8").catch((e) => {
     if (e.code === "ENOENT") return null;
     throw e;
   })]))));
@@ -1341,8 +1389,8 @@ async function validateHistoryAction(root, action, payload, { workState: workSta
 var hash = (x) => createHash2("sha256").update(x).digest("hex");
 var sha2 = (x) => typeof x === "string" && /^[a-f0-9]{40,64}$/.test(x);
 var inside = (a, b) => {
-  const r = path7.relative(a, b);
-  return !r || !r.startsWith(".." + path7.sep) && r !== ".." && !path7.isAbsolute(r);
+  const r = path8.relative(a, b);
+  return !r || !r.startsWith(".." + path8.sep) && r !== ".." && !path8.isAbsolute(r);
 };
 var exists = (p) => access(p).then(() => true, () => false);
 var cleanText = (x, max = 4096) => {
@@ -1379,9 +1427,9 @@ async function workspace(repository, target) {
   return { root, path: canonical, tree: found };
 }
 async function fileVersion(root, name) {
-  if (typeof name !== "string" || name.includes("\0") || path7.isAbsolute(name) || !inside(root, path7.resolve(root, name))) throw new Error("\u6587\u4EF6\u8DEF\u5F84\u8D8A\u754C\u3002");
-  const full = path7.resolve(root, name);
-  const stat = await lstat4(full).catch((e) => e.code === "ENOENT" ? null : Promise.reject(e));
+  if (typeof name !== "string" || name.includes("\0") || path8.isAbsolute(name) || !inside(root, path8.resolve(root, name))) throw new Error("\u6587\u4EF6\u8DEF\u5F84\u8D8A\u754C\u3002");
+  const full = path8.resolve(root, name);
+  const stat = await lstat5(full).catch((e) => e.code === "ENOENT" ? null : Promise.reject(e));
   if (!stat) return "missing";
   if (stat.isSymbolicLink()) return hash(await readlink(full));
   if (!inside(await realpath3(root), await realpath3(full))) throw new Error("\u6587\u4EF6\u771F\u5B9E\u8DEF\u5F84\u8D8A\u754C\u3002");
@@ -1403,7 +1451,7 @@ async function workState(repository, target) {
   for (const f of status.files) versions.push([f.path, await fileVersion(ws.path, f.path)]);
   const gitdir = (await git(ws.path, ["rev-parse", "--absolute-git-dir"])).trim();
   const ongoing = [];
-  for (const name of ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer"]) if (await exists(path7.join(gitdir, name))) ongoing.push(name);
+  for (const name of ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer"]) if (await exists(path8.join(gitdir, name))) ongoing.push(name);
   return { ...ws, status, head, branch, index, identity: identity2, ongoing, version: hash(JSON.stringify({ raw, head, branch, index, identity: identity2, versions, ongoing })) };
 }
 function statusFiles(status) {
@@ -1447,9 +1495,9 @@ async function fileDiff(repository, input) {
   if (!file) throw new Error("\u6587\u4EF6\u5DF2\u4E0D\u5728\u53D8\u66F4\u6E05\u5355\u4E2D\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002");
   if (input.version && input.version !== detail.version) throw new Error("\u6587\u4EF6\u72B6\u6001\u5DF2\u53D8\u5316\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u65B0\u67E5\u770B\u3002");
   if (file.group === "untracked") {
-    const root2 = detail.path, full = path7.resolve(root2, file.path);
+    const root2 = detail.path, full = path8.resolve(root2, file.path);
     await fileVersion(root2, file.path);
-    const stat = await lstat4(full);
+    const stat = await lstat5(full);
     let buffer;
     if (stat.isSymbolicLink()) buffer = Buffer.from(await readlink(full));
     else {
@@ -1520,7 +1568,7 @@ async function validated(repository, action, payload) {
       if (!present) throw new Error("\u76EE\u6807\u672C\u5730\u5206\u652F\u4E0D\u5B58\u5728\u3002");
       if (s.status.total) throw new Error(`\u5DE5\u4F5C\u533A\u5FC5\u987B\u5B8C\u5168\u5E72\u51C0\uFF1B\u5F53\u524D\u6709 ${s.status.total} \u4E2A\u6539\u52A8\u6587\u4EF6\u3002`);
       const trees = parseWorktrees(await git(root, ["worktree", "list", "--porcelain", "-z"]));
-      const occupied = trees.find((w) => w.branch === ref && path7.resolve(w.path) !== path7.resolve(cwd));
+      const occupied = trees.find((w) => w.branch === ref && path8.resolve(w.path) !== path8.resolve(cwd));
       if (occupied) throw new Error(`\u5206\u652F\u88AB Worktree \u5360\u7528\uFF1A${occupied.path}`);
       extra.targetHead = (await resolveRef(root, ref)).hash;
       args = ["switch", "--", payload.name];
@@ -1531,13 +1579,13 @@ async function validated(repository, action, payload) {
       args = ["branch", payload.name, start];
       if (action === "worktree") {
         cleanText(payload.target);
-        if (!path7.isAbsolute(payload.target)) throw new Error("Worktree \u76EE\u6807\u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u3002");
+        if (!path8.isAbsolute(payload.target)) throw new Error("Worktree \u76EE\u6807\u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u3002");
         if (payload.target.split(/[\\/]/).includes("..")) throw new Error("Worktree \u76EE\u6807\u4E0D\u80FD\u5305\u542B\u8DEF\u5F84\u7A7F\u8D8A\u3002");
-        const parent = await realpath3(path7.dirname(payload.target));
-        const target = path7.join(parent, path7.basename(payload.target));
+        const parent = await realpath3(path8.dirname(payload.target));
+        const target = path8.join(parent, path8.basename(payload.target));
         if (await exists(target)) throw new Error("\u76EE\u6807\u76EE\u5F55\u5DF2\u5B58\u5728\u3002");
         const trees = parseWorktrees(await git(root, ["worktree", "list", "--porcelain", "-z"]));
-        for (const t of trees) if (inside(await realpath3(t.path).catch(() => path7.resolve(t.path)), target)) throw new Error("\u76EE\u6807\u4E0D\u80FD\u4F4D\u4E8E\u73B0\u6709 Worktree \u5185\u3002");
+        for (const t of trees) if (inside(await realpath3(t.path).catch(() => path8.resolve(t.path)), target)) throw new Error("\u76EE\u6807\u4E0D\u80FD\u4F4D\u4E8E\u73B0\u6709 Worktree \u5185\u3002");
         const common = await realpath3((await git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim());
         if (inside(common, target)) throw new Error("\u76EE\u6807\u4E0D\u80FD\u4F4D\u4E8E Git \u5143\u6570\u636E\u76EE\u5F55\u5185\u3002");
         extra.target = target;
@@ -1564,7 +1612,7 @@ async function prepareAction(repository, action, payload, expectedVersion) {
   if (preparations.size > 1e3) {
     for (const [id, p] of preparations) if (p.expires < Date.now()) preparations.delete(id);
   }
-  const actionId = randomUUID2(), expires = Date.now() + 12e4;
+  const actionId = randomUUID3(), expires = Date.now() + 12e4;
   preparations.set(actionId, { repository: await commonKey(v.root), action, payload: structuredClone(payload), version: v.version, expires });
   return { actionId, action, target: v.cwd, summary: redactValue({ ...payload, ...v.extra }), version: v.version, expires, executable: true, command: ["git", ...v.args.map(redact)] };
 }
@@ -1610,13 +1658,13 @@ async function executeAction(repository, actionId, operationId) {
 }
 
 // src/review.mjs
-import { realpath as realpath4, lstat as lstat5, open as open4, readlink as readlink2 } from "node:fs/promises";
-import path8 from "node:path";
+import { realpath as realpath4, lstat as lstat6, open as open4, readlink as readlink2 } from "node:fs/promises";
+import path9 from "node:path";
 var flags2 = ["--no-ext-diff", "--no-textconv", "--no-color", "--find-renames"];
 var maximum = 256 * 1024;
 var inside2 = (root, target) => {
-  const relative = path8.relative(root, target);
-  return !relative || !relative.startsWith(".." + path8.sep) && relative !== ".." && !path8.isAbsolute(relative);
+  const relative = path9.relative(root, target);
+  return !relative || !relative.startsWith(".." + path9.sep) && relative !== ".." && !path9.isAbsolute(relative);
 };
 var fields3 = (raw) => raw.replace(/\n$/, "").split("\0");
 var redactMetadata = (value) => String(value).replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/]*@/gi, "$1[redacted]@").replace(/\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b/g, "[redacted]").replace(/(authorization\s*[:=]\s*)(?:bearer|basic)\s+[^\s&#"']+/gi, "$1[redacted]").replace(/((?:access[_-]?token|private[_-]?token|api[_-]?key|token|password|authorization|secret)\s*[:=]\s*)([^\s&#"']+)/gi, "$1[redacted]");
@@ -1703,11 +1751,11 @@ async function reviewDiff(repository, input) {
   return { ...result, file, binary: /Binary files |GIT binary patch/.test(result.patch), submodule: /Subproject commit/.test(result.patch) };
 }
 async function currentContent(root, name) {
-  const full = path8.resolve(root, name);
-  if (!inside2(root, full) || path8.isAbsolute(name) || name.includes("\0")) throw new Error("\u6587\u4EF6\u8DEF\u5F84\u8D8A\u754C\u3002");
-  const stat = await lstat5(full).catch((e) => e.code === "ENOENT" ? null : Promise.reject(e));
+  const full = path9.resolve(root, name);
+  if (!inside2(root, full) || path9.isAbsolute(name) || name.includes("\0")) throw new Error("\u6587\u4EF6\u8DEF\u5F84\u8D8A\u754C\u3002");
+  const stat = await lstat6(full).catch((e) => e.code === "ENOENT" ? null : Promise.reject(e));
   if (!stat) return { text: "", missing: true, binary: false, truncated: false };
-  const parent = await realpath4(path8.dirname(full));
+  const parent = await realpath4(path9.dirname(full));
   if (!inside2(await realpath4(root), parent)) throw new Error("\u6587\u4EF6\u771F\u5B9E\u8DEF\u5F84\u8D8A\u754C\u3002");
   if (stat.isDirectory()) return { text: "", submodule: true, binary: false, truncated: false };
   if (stat.isSymbolicLink()) return { text: await readlink2(full), symlink: true, binary: false, truncated: false };
@@ -1744,65 +1792,9 @@ async function fileContent(repository, input) {
 }
 
 // src/preferences.mjs
-import { realpath as realpath5, lstat as lstat7, readFile as readFile6, open as open6, rename as rename2, unlink as unlink3 } from "node:fs/promises";
+import { realpath as realpath5, lstat as lstat7, readFile as readFile6, open as open5, rename as rename2, unlink as unlink3 } from "node:fs/promises";
 import path10 from "node:path";
 import { randomUUID as randomUUID4 } from "node:crypto";
-
-// src/file-lock.mjs
-import { lstat as lstat6, open as open5, link, readFile as readFile5, unlink as unlink2 } from "node:fs/promises";
-import path9 from "node:path";
-import { randomUUID as randomUUID3 } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
-async function withFileLock(filename2, task, { timeoutMs = 5e3, retryMs = 25 } = {}) {
-  const token = randomUUID3();
-  const temporary = path9.join(path9.dirname(filename2), `${path9.basename(filename2)}.${token}.tmp`);
-  const owner = JSON.stringify({ version: 1, token, pid: process.pid, createdAt: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-  let handle, acquired = false, identity2;
-  try {
-    handle = await open5(temporary, "wx", 384);
-    await handle.writeFile(owner, "utf8");
-    await handle.sync();
-    identity2 = await handle.stat();
-    await handle.close();
-    handle = void 0;
-    const deadline = performance.now() + timeoutMs;
-    while (!acquired) {
-      try {
-        await link(temporary, filename2);
-        acquired = true;
-      } catch (error) {
-        if (error.code !== "EEXIST") throw new Error("\u65E0\u6CD5\u521B\u5EFA\u504F\u597D\u4FDD\u5B58\u9501\uFF1B\u9700\u8981\u652F\u6301\u540C\u76EE\u5F55\u786C\u94FE\u63A5\u7684\u672C\u5730\u6587\u4EF6\u7CFB\u7EDF\u3002", { cause: error });
-        const info = await lstat6(filename2).catch((check) => {
-          if (check.code === "ENOENT") return null;
-          throw check;
-        });
-        if (info && (!info.isFile() || info.isSymbolicLink())) throw new Error("\u504F\u597D\u4FDD\u5B58\u9501\u5FC5\u987B\u662F\u666E\u901A\u6587\u4EF6\uFF0C\u4E0D\u80FD\u4F7F\u7528\u7B26\u53F7\u94FE\u63A5\u3002");
-        if (performance.now() >= deadline) throw new Error(`\u504F\u597D\u4FDD\u5B58\u9501\u7B49\u5F85\u8D85\u65F6\uFF1A${filename2}\u3002\u53E6\u4E00\u4E2A WorkGraph \u53EF\u80FD\u6B63\u5728\u4FDD\u5B58\uFF1B\u82E5\u8FDB\u7A0B\u5F02\u5E38\u9000\u51FA\uFF0C\u8BF7\u5148\u505C\u6B62\u8BE5\u4ED3\u5E93\u7684\u6240\u6709 WorkGraph \u8FDB\u7A0B\uFF0C\u786E\u8BA4\u6CA1\u6709\u4FDD\u5B58\u6B63\u5728\u6267\u884C\u540E\u518D\u79FB\u9664\u6B64\u9501\u6587\u4EF6\u3002`);
-        await delay(retryMs);
-      }
-    }
-    await unlink2(temporary);
-    return await task();
-  } finally {
-    await handle?.close().catch(() => {
-    });
-    try {
-      await unlink2(temporary).catch((error) => {
-        if (error.code !== "ENOENT") throw error;
-      });
-    } finally {
-      if (acquired) {
-        const current = await lstat6(filename2).catch((error) => {
-          if (error.code === "ENOENT") return null;
-          throw error;
-        });
-        if (current?.isFile() && !current.isSymbolicLink() && current.size === Buffer.byteLength(owner) && current.dev === identity2?.dev && current.ino === identity2?.ino && await readFile5(filename2, "utf8") === owner) await unlink2(filename2);
-      }
-    }
-  }
-}
-
-// src/preferences.mjs
 var filename = "workgraph-state.json";
 var maxBytes = 1024 * 1024;
 var retention = 90 * 24 * 60 * 60 * 1e3;
@@ -1928,7 +1920,7 @@ async function savePreferences(repository, input) {
     const temporary = path10.join(directory, `${filename}.${randomUUID4()}.tmp`);
     let handle;
     try {
-      handle = await open6(temporary, "wx", 384);
+      handle = await open5(temporary, "wx", 384);
       await handle.writeFile(content, "utf8");
       await handle.sync();
       await handle.close();
