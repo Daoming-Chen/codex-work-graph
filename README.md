@@ -95,6 +95,7 @@ npm start -- --repo "D:\path\to\repository"
 - [安装与打包](docs/install-lifecycle.md)
 - [使用指南](docs/usage.md)
 - [WorkGraph 工作记录与数据边界](docs/work-graph.md)
+- [共用工作模型与兼容契约](docs/work-model-contract.md)（开发接口，本地记录格式保持兼容）
 - [故障排查](docs/troubleshooting.md)
 - [贡献指南](CONTRIBUTING.md) · [架构与安全边界](docs/current-implementation.md)
 - [本地版与云端版设计及实施方案](docs/local-cloud-design.md)（规划：共用模型、运行边界与 GitHub 试点）
