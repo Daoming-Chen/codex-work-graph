@@ -1,5 +1,7 @@
 # WorkGraph 产品概念
 
+> 本文保留早期产品探索。2026-11-09 确认的共用工作模型、本地版与云端版边界、GitHub 试点及实施顺序统一由[本地版与云端版设计](local-cloud-design.md)维护。本文中的自动化和恢复点等建议不构成本轮实施承诺；现有能力以[当前实现](current-implementation.md)为准。
+
 ## Agent 与 WorkGraph 的协作方向
 
 2026-10-28 用户进一步确认：利用 Codex Agent 对代码仓库进行分析，归纳工作动线、当前成果、剩余问题和下一步，并通过 WorkGraph 本身展示。Agent 对仓库的理解是产品流程的一部分。

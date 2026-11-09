@@ -97,7 +97,8 @@ npm start -- --repo "D:\path\to\repository"
 - [WorkGraph 工作记录与数据边界](docs/work-graph.md)
 - [故障排查](docs/troubleshooting.md)
 - [贡献指南](CONTRIBUTING.md) · [架构与安全边界](docs/current-implementation.md)
-- [项目开发视图产品概念](docs/project-development-concept.md)（规划，待细化）
+- [本地版与云端版设计及实施方案](docs/local-cloud-design.md)（规划：共用模型、运行边界与 GitHub 试点）
+- [项目开发视图产品概念](docs/project-development-concept.md)（早期探索，后续边界以本地版与云端版设计为准）
 
 ## 许可证
 
