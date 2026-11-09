@@ -16,20 +16,26 @@ export function validateReleaseVersion(pkg, plugin, tag, lock) {
   if (tag !== undefined && tag !== `v${pkg.version}`) throw new Error(`Release tag must be v${pkg.version}.`);
   return pkg.version;
 }
+export function encodeReleaseArchive(entries) {
+  return zipSync(Object.fromEntries(entries.map(([name, bytes]) => [name, [bytes, { mtime: new Date(2000, 0, 1), level: 9 }]])));
+}
 async function archive(directory) {
-  const files = {};
+  const files = [];
   async function visit(relative = '') {
     const names = (await readdir(path.join(directory, relative))).sort();
     for (const name of names) {
       const local = path.join(relative, name), full = path.join(directory, local), stat = await lstat(full);
       if (stat.isSymbolicLink()) throw new Error(`Release contains a symbolic link: ${local}`);
       if (stat.isDirectory()) await visit(local);
-      else if (stat.isFile()) files[`workgraph/${local.split(path.sep).join('/')}`] = [await readFile(full), { mtime: new Date(2000, 0, 1), level: 9 }];
+      else if (stat.isFile()) files.push([`workgraph/${local.split(path.sep).join('/')}`, await readFile(full)]);
       else throw new Error(`Unsupported release file: ${local}`);
     }
   }
   await visit();
-  return zipSync(files);
+  return encodeReleaseArchive(files);
+}
+export function releaseNotes(version) {
+  return `# WorkGraph ${version}\n\n- workgraph-skill-${version}.zip: standalone skill; Node.js 22+ and Git required.\n- workgraph-plugin-${version}.zip: optional Codex plugin, including the same skill.\n- Both archives extract into a workgraph directory and include project and third-party licenses.\n\nVerify SHA256SUMS before installing.\nInstallation and host acceptance checklist: https://github.com/Daoming-Chen/codex-work-graph/blob/v${version}/docs/releasing.md\n\nThis package preparation does not certify desktop host installation, upgrade, or uninstall. Record actual acceptance results before publishing.\n`;
 }
 export async function createRelease({ destination, tag } = {}) {
   const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
@@ -53,7 +59,7 @@ export async function createRelease({ destination, tag } = {}) {
       await rm(directory, { recursive: true });
     }
     await writeFile(path.join(staging, 'SHA256SUMS'), sums.join('\n') + '\n', { flag: 'wx' });
-    await writeFile(path.join(staging, 'RELEASE-NOTES.md'), `# WorkGraph ${version}\n\n- workgraph-skill-${version}.zip: standalone skill; Node.js 22+ and Git required.\n- workgraph-plugin-${version}.zip: optional Codex plugin, including the same skill.\n- Both archives extract into a workgraph directory and include project and third-party licenses.\n\nVerify SHA256SUMS before installing.\nInstallation and host acceptance checklist: https://github.com/Daoming-Chen/codex-work-graph/blob/v${version}/docs/releasing.md\n\nThis package preparation does not certify desktop host installation, upgrade, or uninstall. Record actual acceptance results before publishing.\n`, { flag: 'wx' });
+    await writeFile(path.join(staging, 'RELEASE-NOTES.md'), releaseNotes(version), { flag: 'wx' });
     await rename(staging, target);
     return { version, directory: target, files: [...sums.map(line => line.split('  ')[1]), 'SHA256SUMS', 'RELEASE-NOTES.md'] };
   } catch (error) {

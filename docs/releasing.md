@@ -9,6 +9,7 @@
 ```powershell
 npm ci
 npm run release -- --tag v0.3.0
+npm run release:verify -- .release-output/v0.3.0 --tag v0.3.0
 ```
 
 版本号必须与 `package.json`、`plugins/workgraph/plugin.json` 一致。脚本重新构建后生成 `.release-output/v0.3.0/`，包含插件 ZIP、独立 skill ZIP、`SHA256SUMS` 和发布说明。输出目录必须尚不存在；准备失败时不保留半成品目录。可用 `--output <新目录>` 指定位置。
@@ -16,6 +17,8 @@ npm run release -- --tag v0.3.0
 两种 ZIP 均解压为 `workgraph/`，应分别解压到不同目录。包内含 Apache 2.0 全文；插件及其内嵌 skill、独立 skill 均包含项目许可。`THIRD-PARTY-LICENSES.txt` 保留锁定生产依赖自带的许可证与 NOTICE 原文；这是一份保守清单，可能包含构建时被裁剪的依赖。Codicons 素材声明另行保留，不被 Apache 2.0 替换。
 
 归档按文件名排序、固定 ZIP 时间；相同依赖、源码、构建工具和平台下重复生成应得到相同校验值。不同平台的构建结果仍需分别核对，不承诺任意工具版本的逐字节一致。
+
+`release:verify` 用生成候选包的同一份源码和构建产物检查输出目录。命令核对版本、四个文件的准确名称、SHA256 和发布说明，再按预期布局重建 ZIP，逐字节比较两份实际候选。检查覆盖项目许可证、第三方许可文件、内嵌 skill 和运行入口。命令只读取候选包，不解压或执行其中的文件。校验时应保持本地可信源码、构建产物和候选目录稳定。下载包的校验和核对与真实宿主验收仍各有独立步骤。
 
 Windows 校验示例：
 
@@ -29,7 +32,7 @@ Get-FileHash .release-output/v0.3.0/*.zip -Algorithm SHA256
 
 GitHub Actions 的「Prepare release artifacts」支持手动输入预期版本标签，或推送 `v*` 标签后运行。手动运行构建的是界面中选择的 workflow ref；输入标签只校验清单版本，不会切换到该标签源码。标签推送构建的是该标签对应的提交。输入不作为 shell 代码执行。流程安装锁定依赖、重新构建打包、运行检查和测试，成功后上传候选包供下载，不自动公开发布。
 
-标签与清单不一致、构建或测试失败时不上传候选包。不要通过提前改标签绕过验收；版本变更应通过独立 PR 审阅。
+流程在上传前对将要上传的目录运行 `release:verify`。标签与清单不一致，或构建、测试、候选校验失败时，流程停止上传。版本变更应通过独立 PR 审阅。
 
 ## 真实宿主验收清单
 
