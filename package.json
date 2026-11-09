@@ -10,6 +10,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "release": "node scripts/release.mjs",
+    "release:verify": "node scripts/verify-release.mjs",
     "start": "node src/server.mjs --http",
     "mcp": "node src/server.mjs",
     "demo": "node scripts/demo.mjs",

@@ -26,6 +26,10 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: npm run release -- --tag "$RELEASE_TAG" --output .release-output/candidate
       - run: npm run check && npm test
+      - name: Verify candidate archives before upload
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: npm run release:verify -- .release-output/candidate --tag "$RELEASE_TAG"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: workgraph-release-candidate
