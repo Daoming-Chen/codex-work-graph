@@ -82,5 +82,12 @@ test('standalone skill works after relocation without MCP or source dependencies
   const nextPacket=JSON.parse(await readFile(next.contextPath,'utf8'));
   assert.equal(nextPacket.context.scope,'incremental');
   assert.ok(nextPacket.context.delta.paths.items.includes('code.txt'));
+  const previewFile=path.join(path.dirname(next.contextPath),'preview.json');
+  await writeFile(next.candidatePath,JSON.stringify({version:1,works:[],unchangedIds:[work.id]}));
+  const {stdout:preview}=await exec(process.execPath,[cli,'preview','--context',next.contextPath,'--input',next.candidatePath]);
+  assert.deepEqual(JSON.parse(preview).unchanged,[work.id]);
+  await writeFile(previewFile,preview);
+  const {stdout:confirmed}=await exec(process.execPath,[cli,'save','--repo',root,'--context',next.contextPath,'--input',next.candidatePath,'--preview',previewFile]);
+  assert.equal(JSON.parse(confirmed).state,'saved');
   assert.match(await readFile(path.join(moved,'scripts/graph.html'),'utf8'),/work-mode,#work-analyze\{display:none/);
 });
