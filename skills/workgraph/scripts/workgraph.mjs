@@ -1,5 +1,5 @@
 // src/workgraph-cli.mjs
-import { readFile as readFile7, writeFile as writeFile2, lstat as lstat8, mkdir as mkdir2, mkdtemp as mkdtemp2 } from "node:fs/promises";
+import { readFile as readFile7, writeFile as writeFile2, lstat as lstat9, mkdir as mkdir2, mkdtemp as mkdtemp2 } from "node:fs/promises";
 import path12 from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -2237,6 +2237,171 @@ async function startHttp({ repositoryPath, html, port = 0, now = Date.now, analy
   };
 }
 
+// src/work-preview.mjs
+import { constants } from "node:fs";
+import { lstat as lstat8, open as open7 } from "node:fs/promises";
+import { createHash as createHash4 } from "node:crypto";
+var maxInputBytes = 4 * 1024 * 1024;
+var maxPreviewBytes = 64 * 1024;
+var previewFileOverhead = 5;
+var maxCommitChanges = 100;
+var maxDetailItems = 20;
+var maxDetailCharacters = 120;
+var detailFields = /* @__PURE__ */ new Set(["title", "status", "next", "summary", "parentId", "kind"]);
+var digestPattern = /^[a-f0-9]{64}$/;
+var utf8 = new TextDecoder("utf-8", { fatal: true });
+async function readMapInput(filename2, label, maxBytes3 = maxInputBytes) {
+  const limit = maxBytes3 === maxInputBytes ? "4 MiB" : "64 KiB";
+  const invalidFile = () => new Error(`${label}\u5FC5\u987B\u662F\u5927\u5C0F\u4E0D\u8D85\u8FC7 ${limit} \u7684\u666E\u901A JSON \u6587\u4EF6\u3002`);
+  const before = await lstat8(filename2);
+  if (!before.isFile() || before.size > maxBytes3) throw invalidFile();
+  const file = await open7(filename2, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const current = await file.stat();
+    if (!current.isFile() || current.size > maxBytes3 || current.dev !== before.dev || current.ino !== before.ino) throw invalidFile();
+    const buffer = Buffer.allocUnsafe(maxBytes3 + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await file.read(buffer, length, buffer.length - length, length);
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    if (length > maxBytes3) throw invalidFile();
+    const bytes2 = buffer.subarray(0, length);
+    let value;
+    try {
+      value = JSON.parse(utf8.decode(bytes2));
+    } catch {
+      throw new Error(`${label}\u5FC5\u987B\u5305\u542B\u6709\u6548\u7684 UTF-8 JSON\u3002`);
+    }
+    return { value, digest: createHash4("sha256").update(bytes2).digest("hex") };
+  } finally {
+    await file.close();
+  }
+}
+function owners(works) {
+  const result = /* @__PURE__ */ new Map();
+  for (const { id, commits } of works) {
+    if (typeof id !== "string") throw new Error("\u5DE5\u4F5C\u9879\u6807\u8BC6\u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u3002");
+    for (const commit of commits) {
+      if (typeof commit !== "string") throw new Error("\u63D0\u4EA4\u5173\u8054\u5FC5\u987B\u662F SHA \u5B57\u7B26\u4E32\u3002");
+      result.set(commit, id);
+    }
+  }
+  return result;
+}
+function ownershipChanges(before, after) {
+  const changes = [];
+  let total = 0;
+  function add(commit, from, to) {
+    total++;
+    if (changes.length < maxCommitChanges) changes.push({ commit, from, to });
+  }
+  for (const [commit, from] of before) {
+    const to = after.get(commit) ?? null;
+    if (from !== to) add(commit, from, to);
+  }
+  for (const [commit, to] of after) {
+    if (!before.has(commit)) add(commit, null, to);
+  }
+  return { total, omitted: total - changes.length, changes };
+}
+function textPreview(value) {
+  if (value === void 0) return null;
+  const characters = Array.from(value);
+  return { text: characters.slice(0, maxDetailCharacters).join(""), truncated: characters.length > maxDetailCharacters };
+}
+function addDetails(preview, details) {
+  const detailBudget = Math.floor((maxPreviewBytes - Buffer.byteLength(JSON.stringify(preview)) - previewFileOverhead) / 2);
+  for (const kind of ["added", "changed"]) {
+    let remaining = detailBudget;
+    for (const item of details[kind].slice(0, maxDetailItems)) {
+      const bytes2 = Buffer.byteLength(JSON.stringify(item)) + 1;
+      if (bytes2 > remaining) break;
+      preview.details[kind].push(item);
+      preview.details.omitted[kind]--;
+      remaining -= bytes2;
+    }
+  }
+}
+function previewMapUpdate(contextInput, candidateInput) {
+  const packet = contextInput.value;
+  const candidate = candidateInput.value;
+  if (packet?.version !== 1 || typeof packet.root !== "string" || !packet.root || !["initialize", "update"].includes(packet.mode) || typeof packet.baseline?.fingerprint !== "string" || !digestPattern.test(packet.baseline.fingerprint) || !packet.context || typeof packet.context !== "object" || Array.isArray(packet.context)) {
+    throw new Error("\u5206\u6790\u6750\u6599\u683C\u5F0F\u65E0\u6548\u3002\u8BF7\u4F7F\u7528 context \u751F\u6210\u7684\u6750\u6599\u3002");
+  }
+  if (candidate?.version !== 1 || !Array.isArray(candidate.works) || candidate.works.length > 100) {
+    throw new Error("\u5019\u9009\u5DE5\u4F5C\u8BB0\u5F55\u683C\u5F0F\u65E0\u6548\u3002");
+  }
+  validateWorkManifest(packet.previous);
+  const works = mergeAnalysisResult(packet.previous, candidate, packet.mode);
+  validateWorkManifest({ version: candidate.version, works });
+  const oldOwners = owners(packet.previous.works);
+  const newOwners = owners(works);
+  const oldWorks = new Map(packet.previous.works.map((work) => [work.id, work]));
+  const nextIds = new Set(works.map((work) => work.id));
+  if ([...oldWorks.keys()].some((id) => !nextIds.has(id))) {
+    throw new Error("\u5206\u6790\u7ED3\u679C\u4E22\u5931\u5DF2\u6709\u5DE5\u4F5C\u9879\u3002\u8BF7\u4FDD\u7559\u539F\u6709\u6807\u8BC6\u3002");
+  }
+  const added = [], changed = [], unchanged = [];
+  const details = { added: [], changed: [] };
+  for (const work of works) {
+    const old = oldWorks.get(work.id);
+    if (!old) {
+      added.push(work.id);
+      details.added.push({ id: work.id, title: textPreview(work.title), status: work.status, next: textPreview(work.next) });
+      continue;
+    }
+    const fields4 = [.../* @__PURE__ */ new Set([...Object.keys(old), ...Object.keys(work)])].filter(
+      (key) => key !== "updatedAt" && JSON.stringify(old[key]) !== JSON.stringify(work[key])
+    ).sort();
+    if (!fields4.length) {
+      unchanged.push(work.id);
+      continue;
+    }
+    changed.push({ id: work.id, fields: fields4 });
+    details.changed.push({
+      id: work.id,
+      values: Object.fromEntries(fields4.filter((key) => detailFields.has(key)).map((key) => [
+        key,
+        { from: textPreview(old[key]), to: textPreview(work[key]) }
+      ])),
+      omittedFields: fields4.filter((key) => !detailFields.has(key))
+    });
+  }
+  const scope = ["incremental", "focused-map", "initial-map"].includes(packet.context.scope) ? packet.context.scope : "unknown";
+  const preview = {
+    version: 1,
+    state: "preview",
+    mode: packet.mode,
+    scope,
+    contextDigest: contextInput.digest,
+    candidateDigest: candidateInput.digest,
+    added,
+    changed,
+    unchanged,
+    explicitCommitOwnership: ownershipChanges(oldOwners, newOwners),
+    details: { added: [], changed: [], omitted: { added: added.length, changed: changed.length } },
+    limits: [
+      "\u4EC5\u6BD4\u8F83\u6750\u6599\u4E2D\u7684\u65E7\u8BB0\u5F55\u4E0E\u5408\u5E76\u540E\u7684\u5019\u9009\uFF0C\u672A\u6838\u5BF9\u5B9E\u65F6\u4ED3\u5E93\u3002\u6536\u96C6\u7684\u6750\u6599\u53EF\u80FD\u6709\u9057\u6F0F\u6216\u622A\u65AD\u3002",
+      "\u4EC5\u6BD4\u8F83\u663E\u5F0F\u63D0\u4EA4 SHA \u5173\u8054\u3002\u672A\u89E3\u6790 Work-Item \u6807\u8BB0\u6216\u6838\u9A8C\u63D0\u4EA4\u662F\u5426\u5B58\u5728\u3002",
+      "\u8BE6\u60C5\u4EC5\u5C55\u793A\u90E8\u5206\u5B57\u6BB5\u548C\u503C\u7684\u77ED\u6587\u672C\u3002\u4FDD\u5B58\u8FD8\u4F1A\u6838\u5BF9\u5B9E\u65F6\u57FA\u7EBF\u3001\u8BB0\u5F55\u548C\u5927\u5C0F\u4E0A\u9650\u3002"
+    ]
+  };
+  addDetails(preview, details);
+  if (Buffer.byteLength(JSON.stringify(preview)) + previewFileOverhead > maxPreviewBytes) throw new Error("\u66F4\u65B0\u9884\u89C8\u8D85\u8FC7 64 KiB\u3002");
+  return preview;
+}
+async function verifyMapPreview(filename2, contextInput, candidateInput) {
+  const { value: preview } = await readMapInput(filename2, "\u66F4\u65B0\u9884\u89C8", maxPreviewBytes);
+  if (preview?.version !== 1 || preview.state !== "preview" || typeof preview.contextDigest !== "string" || !digestPattern.test(preview.contextDigest) || typeof preview.candidateDigest !== "string" || !digestPattern.test(preview.candidateDigest)) {
+    throw new Error("\u66F4\u65B0\u9884\u89C8\u683C\u5F0F\u65E0\u6548\u3002\u8BF7\u91CD\u65B0\u8FD0\u884C preview\u3002");
+  }
+  if (preview.contextDigest !== contextInput.digest || preview.candidateDigest !== candidateInput.digest) {
+    throw new Error("\u5206\u6790\u6750\u6599\u6216\u5019\u9009\u6587\u4EF6\u5728\u9884\u89C8\u540E\u5DF2\u53D8\u5316\u3002\u8BF7\u91CD\u65B0\u751F\u6210\u5E76\u6838\u5BF9\u9884\u89C8\u3002");
+  }
+}
+
 // src/workgraph-cli.mjs
 async function prepareWorkMap(repositoryPath) {
   const { root, bare } = await resolveRepository(repositoryPath);
@@ -2268,11 +2433,6 @@ async function saveWorkMap(repositoryPath, packet, result) {
     await service.close();
   }
 }
-async function jsonFile(filename2) {
-  const info = await lstat8(filename2);
-  if (!info.isFile() || info.isSymbolicLink() || info.size > 4 * 1024 * 1024) throw new Error("\u8F93\u5165\u5FC5\u987B\u662F\u5C0F\u4E8E 4 MiB \u7684\u666E\u901A JSON \u6587\u4EF6\u3002");
-  return JSON.parse((await readFile7(filename2, "utf8")).replace(/^\uFEFF/, ""));
-}
 async function requestPath(repositoryPath) {
   const { root, bare } = await resolveRepository(repositoryPath);
   if (bare) throw new Error("\u88F8\u4ED3\u5E93\u4E0D\u80FD\u5EFA\u7ACB\u5DE5\u4F5C\u5730\u56FE\u3002");
@@ -2281,7 +2441,7 @@ async function requestPath(repositoryPath) {
     await mkdir2(directory).catch((error) => {
       if (error.code !== "EEXIST") throw error;
     });
-    const info = await lstat8(directory);
+    const info = await lstat9(directory);
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("WorkGraph \u8FD0\u884C\u8DEF\u5F84\u5FC5\u987B\u662F\u666E\u901A\u76EE\u5F55\u3002");
   }
   await writeFile2(path12.join(root, ".workgraph/.gitignore"), "runtime/\nstate-*.tmp\n", { flag: "wx" }).catch((error) => {
@@ -2292,14 +2452,19 @@ async function requestPath(repositoryPath) {
 async function runCli(argv) {
   const [command, ...args] = argv;
   if (!command || command === "--help" || command === "help") return {
-    commands: ["doctor", "status --repo <path>", "resume --repo <path> --work <id>", "context --repo <path>", "save --repo <path> --context <context.json> --input <candidate.json>", "open --repo <path>"],
+    commands: ["doctor", "status --repo <path>", "resume --repo <path> --work <id>", "context --repo <path>", "preview --context <context.json> --input <candidate.json>", "save --repo <path> --context <context.json> --input <candidate.json> [--preview <preview.json>]", "open --repo <path>"],
     resumeOutput: "resume returns bounded JSON including copyable text; it reads historical records and current metadata without sending messages or writing files.",
-    usage: "Only context + save update the work map when the user requests it. status/open/resume never start analysis. open stays running until Ctrl+C."
+    usage: "Only context + save update the work map when the user requests it. status/open/resume/preview never start analysis. open stays running until Ctrl+C."
   };
   const options = {};
   for (let i = 0; i < args.length; i += 2) {
-    if (!["--repo", "--context", "--input", "--work"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--") || options[args[i]]) throw new Error("\u53C2\u6570\u65E0\u6548\uFF0C\u8BF7\u8FD0\u884C --help\u3002");
+    if (!["--repo", "--context", "--input", "--work", "--preview"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--") || options[args[i]]) throw new Error("\u53C2\u6570\u65E0\u6548\uFF0C\u8BF7\u8FD0\u884C --help\u3002");
     options[args[i]] = args[i + 1];
+  }
+  if (options["--preview"] && command !== "save") throw new Error("--preview \u4EC5\u7528\u4E8E save\u3002");
+  if (command === "preview") {
+    if (!options["--context"] || !options["--input"] || Object.keys(options).length !== 2) throw new Error("preview \u9700\u8981 --context \u548C --input\uFF0C\u4E14\u53EA\u63A5\u53D7\u8FD9\u4E24\u4E2A\u53C2\u6570\u3002");
+    return previewMapUpdate(await readMapInput(options["--context"], "\u5206\u6790\u6750\u6599"), await readMapInput(options["--input"], "\u5019\u9009\u5DE5\u4F5C\u8BB0\u5F55"));
   }
   if (command === "doctor") {
     for (const asset of ["./graph.html", "../references/initialize.md", "../references/update.md"]) await readFile7(new URL(asset, import.meta.url));
@@ -2323,7 +2488,10 @@ async function runCli(argv) {
   }
   if (command === "save") {
     if (!options["--context"] || !options["--input"]) throw new Error("save \u9700\u8981 --context \u548C --input\u3002");
-    return saveWorkMap(repo, await jsonFile(options["--context"]), await jsonFile(options["--input"]));
+    const context = await readMapInput(options["--context"], "\u5206\u6790\u6750\u6599");
+    const candidate = await readMapInput(options["--input"], "\u5019\u9009\u5DE5\u4F5C\u8BB0\u5F55");
+    if (options["--preview"]) await verifyMapPreview(options["--preview"], context, candidate);
+    return saveWorkMap(repo, context.value, candidate.value);
   }
   if (command === "open") {
     const html = await readFile7(new URL("./graph.html", import.meta.url), "utf8");
