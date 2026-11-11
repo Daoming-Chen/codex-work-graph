@@ -1,19 +1,15 @@
 name: Prepare release artifacts
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Expected version (vX.Y.Z); validates selected workflow ref, does not select a tag
-        required: true
-        type: string
   push:
-    tags: ['v*']
+    branches: [verify/release-upload-20261111]
 permissions:
   contents: read
 jobs:
   package:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RELEASE_TAG: v0.3.0
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -22,16 +18,19 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Build and prepare both archives
-        env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: npm run release -- --tag "$RELEASE_TAG" --output .release-output/candidate
       - run: npm run check && npm test
       - name: Verify candidate archives before upload
-        env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: npm run release:verify -- .release-output/candidate --tag "$RELEASE_TAG"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: workgraph-release-candidate
           path: .release-output/candidate/*
           if-no-files-found: error
+          retention-days: 1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: workgraph-release-candidate
+          path: .release-output/downloaded-candidate
+      - name: Verify downloaded candidate archives
+        run: npm run release:verify -- .release-output/downloaded-candidate --tag "$RELEASE_TAG"
