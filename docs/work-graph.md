@@ -46,9 +46,28 @@ node <cli> resume --repo "D:\path\to\repository" --work WG-DOCS
 
 CLI `status` 与 `open` 只读取或展示，不启动分析。`context` 自动在 `.workgraph/runtime/` 下创建唯一请求目录，返回材料与候选路径；材料不是永久工作记录。`save` 需要本次材料及候选，拒绝材料收集后的代码或记录变化，防止旧结果覆盖新状态。完整流程见 [skill](../skills/workgraph/SKILL.md)。
 
+#### 预览候选更新
+
+准备好 `context` 返回的材料和候选文件后，可以先运行 `preview`。预览仅从两份文件读取旧记录和候选，输出 JSON。它不会查询 Git、启动模型或创建运行文件。以下 PowerShell 示例使用 `context` 返回的 `contextPath`、`candidatePath`，并将预览 JSON 保存到同一个请求目录。
+
+```powershell
+node <cli> preview --context "<contextPath>" --input "<candidatePath>" |
+  Set-Content -LiteralPath "<requestDir>\preview.json" -Encoding utf8
+```
+
+`added` 和 `unchanged` 列出新增和未修改的工作 ID，`changed` 列出修改的 ID 及字段名。候选必须保留已有工作 ID。`details` 展示新增工作的标题、状态和下一步，以及修改前后的标题、状态、下一步、摘要、父工作 ID 和类型。每段文本最多 120 个 Unicode 码点，截断时标为 `truncated`。每类最多展示 20 项，受输出大小限制，未展示的条数见 `details.omitted`，详情中省略的字段见 `omittedFields`。预览不比较保存时生成的更新时间。`explicitCommitOwnership` 只比较记录中的显式提交 SHA 关联，列出最多 100 条新增、移除或变更的关联，并报告总数及省略条数。`from` 或 `to` 为 `null` 时表示原记录或候选中没有该显式关联。提交是否存在、提交信息中的 `Work-Item` 标记和实时仓库状态不在离线预览范围内。材料的收集范围见 `scope`，材料可能有截断和遗漏。
+
+核对预览后，可在原有保存命令中添加 `--preview`。保存前会比较预览中的 `contextDigest`、`candidateDigest` 与这次读取的文件原始字节，包括 BOM 和空白。任一文件变化都需要重新生成并核对预览。
+
+```powershell
+node <cli> save --repo "<repositoryPath>" --context "<contextPath>" --input "<candidatePath>" --preview "<requestDir>\preview.json"
+```
+
+摘要用于绑定输入内容，不是签名或操作授权。保存只校验预览版本和输入摘要，预览中的差异字段仍可被编辑。省略 `--preview` 时仍可使用原保存命令。保存始终核对实际仓库和现有记录，并执行记录大小限制，因此预览成功后仍可能拒绝保存。材料和候选各限 4 MiB，预览输出和 `--preview` 文件各限 64 KiB，输入必须是普通 UTF-8 JSON 文件。
+
 插件保留「更新工作地图」按钮及 `workgraph_work_analyze`，默认 `mode: auto`。这一兼容入口调用 `codex exec --sandbox read-only --output-schema ...`，使用本机认证与模型配置，不能读取发起请求的聊天正文。Windows 默认通过 `where.exe codex.exe` 查找程序，也可设置 `WORKGRAPH_CODEX_PATH`，不支持 `.cmd`、`.bat` 或 `.ps1`。Codex 子进程超时为 10 分钟，准备与保存时间另计。
 
-两条路径共用有界证据收集、工作项校验、跨进程锁、保存前复核和原子保存。材料最多 64 KiB，单份文档摘录最多 8 KiB，已有地图另行传入；截断和未读取内容不能作为完成依据。存在 CodeGraph 时优先使用已有索引，不自动创建索引。
+两条路径共用有界证据收集、工作项校验、跨进程保存锁、保存前复核和原子保存。地图保存锁位于当前 Worktree 的 `.workgraph/runtime/analysis.lock`，竞争请求立即失败，不自动重试。锁不按 PID 或时间自动回收；升级前需停止旧版本的所有地图写入者，异常退出残留锁的恢复见[故障排查](troubleshooting.md#工作地图保存锁冲突与恢复)。材料最多 64 KiB，单份文档摘录最多 8 KiB，已有地图另行传入；截断和未读取内容不能作为完成依据。存在 CodeGraph 时优先使用已有索引，不自动创建索引。
 
 更新时先核实历史基线，只提供基线之后的新提交，并检查提交净变化、当前未提交文件和上次分析时的未提交路径。缺少路径基线、覆盖不完整或历史不连续时，标注原因并回退到有界项目地图。增量结果只包含修改、新增工作及明确保留的 ID；未变化项保留原内容与更新时间。
 

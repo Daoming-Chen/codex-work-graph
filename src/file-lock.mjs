@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 // All cooperating writers use this lease. We deliberately never steal a lock:
 // PID reuse, paused processes and competing stale-lock reclaimers make automatic
 // file deletion unsafe. A crashed owner requires the documented offline recovery.
-export async function withFileLock(filename, task, { timeoutMs = 5000, retryMs = 25 } = {}) {
+export async function withFileLock(filename, task, { timeoutMs = 5000, retryMs = 25, label = '偏好保存锁' } = {}) {
   const token = randomUUID();
   const temporary = path.join(path.dirname(filename), `${path.basename(filename)}.${token}.tmp`);
   const owner = JSON.stringify({ version: 1, token, pid: process.pid, createdAt: new Date().toISOString() }) + '\n';
@@ -25,10 +25,10 @@ export async function withFileLock(filename, task, { timeoutMs = 5000, retryMs =
         await link(temporary, filename);
         acquired = true;
       } catch (error) {
-        if (error.code !== 'EEXIST') throw new Error('无法创建偏好保存锁；需要支持同目录硬链接的本地文件系统。', { cause: error });
+        if (error.code !== 'EEXIST') throw new Error(`无法创建${label}；需要支持同目录硬链接的本地文件系统。`, { cause: error });
         const info = await lstat(filename).catch(check => { if (check.code === 'ENOENT') return null; throw check; });
-        if (info && (!info.isFile() || info.isSymbolicLink())) throw new Error('偏好保存锁必须是普通文件，不能使用符号链接。');
-        if (performance.now() >= deadline) throw new Error(`偏好保存锁等待超时：${filename}。另一个 WorkGraph 可能正在保存；若进程异常退出，请先停止该仓库的所有 WorkGraph 进程，确认没有保存正在执行后再移除此锁文件。`);
+        if (info && (!info.isFile() || info.isSymbolicLink())) throw new Error(`${label}必须是普通文件，不能使用符号链接。`);
+        if (performance.now() >= deadline) throw new Error(`${label}等待超时：${filename}。另一个 WorkGraph 可能正在保存；若进程异常退出，请先停止该仓库的所有 WorkGraph 进程，确认没有保存正在执行后再移除此锁文件。`);
         await delay(retryMs);
       }
     }

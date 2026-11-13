@@ -6,7 +6,8 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { unzipSync } from 'fflate';
-import { createRelease, validateReleaseVersion } from '../scripts/release.mjs';
+import { createRelease, encodeReleaseArchive, validateReleaseVersion } from '../scripts/release.mjs';
+import { verifyRelease } from '../scripts/verify-release.mjs';
 import { collectThirdPartyLicenses } from '../scripts/third-party-licenses.mjs';
 const exec = promisify(execFile);
 
@@ -34,6 +35,8 @@ test('release archives preserve licensing, exclude stale files, relocate, and re
   t.after(() => Promise.all(stale.map(filename => rm(filename, { force: true }))));
   const first = await createRelease({ destination: path.join(parent, 'one') });
   const second = await createRelease({ destination: path.join(parent, 'two') });
+  assert.deepEqual(await verifyRelease({ directory: first.directory, tag: `v${first.version}` }), first);
+  await assert.rejects(verifyRelease({ directory: first.directory, tag: 'v999.0.0' }), /Release tag/);
   assert.equal(await readFile(path.join(first.directory, 'SHA256SUMS'), 'utf8'), await readFile(path.join(second.directory, 'SHA256SUMS'), 'utf8'));
   await assert.rejects(createRelease({ destination: first.directory }), /already exists/);
   const license = await readFile('LICENSE', 'utf8');
@@ -59,6 +62,25 @@ test('release archives preserve licensing, exclude stale files, relocate, and re
     const doctor = JSON.parse((await exec(process.execPath, [entry, 'doctor'], { cwd: parent })).stdout);
     assert.equal(doctor.ready, true);
   }
+
+  const plugin = `workgraph-plugin-${first.version}.zip`;
+  const candidate = path.join(second.directory, plugin);
+  const original = await readFile(candidate);
+  const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+  const entries = unzipSync(original);
+  assert.deepEqual(Buffer.from(encodeReleaseArchive(Object.entries(entries))), original);
+  delete entries['workgraph/skills/workgraph/LICENSE'];
+  const incomplete = encodeReleaseArchive(Object.entries(entries));
+  await writeFile(candidate, incomplete);
+  await assert.rejects(verifyRelease({ directory: second.directory }), /SHA256SUMS/);
+  // A rewritten checksum must not make a missing license or malformed ZIP valid.
+  for (const invalid of [incomplete, Buffer.from('not a ZIP')]) {
+    await writeFile(candidate, invalid);
+    await writeFile(path.join(second.directory, 'SHA256SUMS'), checksums.replace(digest(original), digest(invalid)));
+    await assert.rejects(verifyRelease({ directory: second.directory }), /expected ZIP layout/);
+  }
+  await rm(candidate);
+  await assert.rejects(verifyRelease({ directory: second.directory }), /Unexpected release file set/);
 });
 
 test('third-party notice collection fails instead of silently dropping missing license texts', async t => {

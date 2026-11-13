@@ -1,6 +1,6 @@
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, writeFile, mkdir, rename, unlink, lstat, open, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, unlink, lstat, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
@@ -8,6 +8,7 @@ import path from 'node:path';
 import { git, resolveRepository } from './git.mjs';
 import { loadWorkRecord, validateWorkManifest } from './work-graph.mjs';
 import { collectWorkContext, normalizeWorktreeSnapshot } from './work-context.mjs';
+import { withFileLock } from './file-lock.mjs';
 
 const execute = promisify(execFile);
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -163,77 +164,82 @@ export function createWorkAnalysis({ runner=runCodexAnalysis, fingerprint=workFi
     e.phase=name;e.phaseMs=time;e.phaseStartedAt=name?timestamp(time):null;
   }
   async function perform(e,mode) {
-    let lease, directory;
+    let directory, finalized=false, saved=false;
+    function finish() {
+      const failedPhase=e.state==='failed'?e.phase:null;
+      phase(e,null);e.completedMs=now();e.completedAt=timestamp(e.completedMs);
+      e.lastRun={version:1,mode,state:e.state,startedAt:e.startedAt,completedAt:e.completedAt,elapsedMs:Math.max(0,e.completedMs-e.startedMs),durationsMs:{...e.durationsMs},failedPhase};
+      if(execution==='agent-save')e.lastRun.execution='agent-save';
+      finalized=true;
+    }
     try {
       directory=await safeDirectory(e.root);
       // Keep runtime files out of Git without changing the project's .gitignore.
       try { await writeFile(path.join(directory,'.gitignore'), 'runtime/\nstate-*.tmp\n', {flag:'wx'}); } catch(error) { if(error.code!=='EEXIST')throw error; }
       const runtime=path.join(directory,'runtime');await mkdir(runtime,{recursive:true});
       if((await lstat(runtime)).isSymbolicLink())throw new Error('运行目录不能是符号链接。');
-      const lock=path.join(runtime,'analysis.lock');
-      try { lease=await open(lock,'wx'); }
-      catch(error) {
-        if(error.code!=='EEXIST')throw error;
-        const owner=JSON.parse(await readFile(lock,'utf8'));
-        try { process.kill(owner.pid,0); throw new Error('另一个 WorkGraph 正在分析此仓库。'); }
-        catch(check) { if(check.code!=='ESRCH')throw check; }
-        await unlink(lock);lease=await open(lock,'wx');
-      }
-      await lease.writeFile(JSON.stringify({pid:process.pid}));
-      const {manifest:previous}=await loadWorkRecord(e.root);
-      phase(e,'fingerprint');
-      const baseline=await fingerprint(e.root);
-      if(disposed)throw new Error('服务已关闭。');
-      e.controller=new AbortController();
-      phase(e,'collect');
-      const context=await collector({root:e.root,mode,previous,baseline,signal:e.controller.signal});
-      if(disposed)throw new Error('服务已关闭。');
-      phase(e,'analysis');
-      const result=await runner({root:e.root,mode,previous,baseline,context,signal:e.controller.signal});
-      if(disposed)throw new Error('服务已关闭。');
-      phase(e,'validate');
-      const works=mergeAnalysisResult(previous,result,mode);
-      validateWorkManifest({version:result.version,works});
-      const ids=new Set(works.map(w=>w.id));
-      if(previous.works.some(w=>!ids.has(w.id)))throw new Error('分析结果丢失已有工作项，原记录已保留。');
-      phase(e,'recheck');
-      const current=await fingerprint(e.root);
-      if(current.fingerprint!==baseline.fingerprint)throw new Error('分析期间代码发生变化，请重新请求更新。');
-      if(digest(JSON.stringify((await loadWorkRecord(e.root)).manifest))!==digest(JSON.stringify(previous)))throw new Error('工作记录已被其他进程修改，原记录已保留。');
-      phase(e,'save');
-      const updatedAt=new Date(now()).toISOString();
-      for(const work of works) {
-        const old=previous.works.find(w=>w.id===work.id);
-        const comparable=w=>JSON.stringify(Object.fromEntries(Object.entries(w).filter(([key])=>key!=='updatedAt').sort(([a],[b])=>a.localeCompare(b))));
-        work.updatedAt=old&&comparable(old)===comparable(work)?old.updatedAt:updatedAt;
-      }
-      const scope=context.scope==='incremental'?'上次分析基线之后的提交与相关文件变化':'有界项目地图与 HEAD 最近最多 300 条提交';
-      const record={version:1,works,automation:{enabled:false},analysis:{...baseline,updatedAt,scope}};
-      const worktree=normalizeWorktreeSnapshot(context.worktree);
-      if(worktree)record.analysis.worktree=worktree;
-      let payload=JSON.stringify(record,null,2)+'\n';
-      // Work items take precedence over optional acceleration metadata near the
-      // existing record limit. An incomplete/missing snapshot forces safe fallback.
-      if(Buffer.byteLength(payload)>262144&&worktree) {
-        record.analysis.worktree={version:1,dirtyPaths:[],complete:false};
-        payload=JSON.stringify(record,null,2)+'\n';
-        if(Buffer.byteLength(payload)>262144){delete record.analysis.worktree;payload=JSON.stringify(record,null,2)+'\n';}
-      }
-      if(Buffer.byteLength(payload)>262144)throw new Error('工作记录超过 256 KiB。');
-      const temporary=path.join(directory,`state-${randomUUID()}.tmp`);
-      try { await writeFile(temporary,payload,{flag:'wx'});await rename(temporary,path.join(directory,'state.json')); }
-      finally { await unlink(temporary).catch(()=>{}); }
-      e.state='idle';e.error=null;
-    } catch(error) {e.state='failed';e.error=error.message;}
-    finally {
-      const failedPhase=e.state==='failed'?e.phase:null;
-      phase(e,null);e.completedMs=now();e.completedAt=timestamp(e.completedMs);
-      e.lastRun={version:1,mode,state:e.state,startedAt:e.startedAt,completedAt:e.completedAt,elapsedMs:Math.max(0,e.completedMs-e.startedMs),durationsMs:{...e.durationsMs},failedPhase};
-      if(execution==='agent-save')e.lastRun.execution='agent-save';
-      // A diagnostic write failure must never invalidate a saved work record. Only
-      // the lease owner writes, so a competing transport cannot replace its report.
-      if(lease)await saveLastRun(directory,e.lastRun).catch(()=>{});
-      if(lease){await lease.close();await unlink(path.join(directory,'runtime/analysis.lock')).catch(()=>{});}
+      await withFileLock(path.join(runtime,'analysis.lock'), async()=>{
+        try {
+          // Mode resolution precedes acquisition. Even a short completed writer
+          // must not turn an initialization request into an overwrite of its map.
+          if(await resolveAnalysisMode(e.root)!==mode)throw new Error('工作地图模式已变化，请重新请求更新。');
+          const {manifest:previous}=await loadWorkRecord(e.root);
+          phase(e,'fingerprint');
+          const baseline=await fingerprint(e.root);
+          if(disposed)throw new Error('服务已关闭。');
+          e.controller=new AbortController();
+          phase(e,'collect');
+          const context=await collector({root:e.root,mode,previous,baseline,signal:e.controller.signal});
+          if(disposed)throw new Error('服务已关闭。');
+          phase(e,'analysis');
+          const result=await runner({root:e.root,mode,previous,baseline,context,signal:e.controller.signal});
+          if(disposed)throw new Error('服务已关闭。');
+          phase(e,'validate');
+          const works=mergeAnalysisResult(previous,result,mode);
+          validateWorkManifest({version:result.version,works});
+          const ids=new Set(works.map(w=>w.id));
+          if(previous.works.some(w=>!ids.has(w.id)))throw new Error('分析结果丢失已有工作项，原记录已保留。');
+          phase(e,'recheck');
+          const current=await fingerprint(e.root);
+          if(current.fingerprint!==baseline.fingerprint)throw new Error('分析期间代码发生变化，请重新请求更新。');
+          if(digest(JSON.stringify((await loadWorkRecord(e.root)).manifest))!==digest(JSON.stringify(previous)))throw new Error('工作记录已被其他进程修改，原记录已保留。');
+          phase(e,'save');
+          const updatedAt=new Date(now()).toISOString();
+          for(const work of works) {
+            const old=previous.works.find(w=>w.id===work.id);
+            const comparable=w=>JSON.stringify(Object.fromEntries(Object.entries(w).filter(([key])=>key!=='updatedAt').sort(([a],[b])=>a.localeCompare(b))));
+            work.updatedAt=old&&comparable(old)===comparable(work)?old.updatedAt:updatedAt;
+          }
+          const scope=context.scope==='incremental'?'上次分析基线之后的提交与相关文件变化':'有界项目地图与 HEAD 最近最多 300 条提交';
+          const record={version:1,works,automation:{enabled:false},analysis:{...baseline,updatedAt,scope}};
+          const worktree=normalizeWorktreeSnapshot(context.worktree);
+          if(worktree)record.analysis.worktree=worktree;
+          let payload=JSON.stringify(record,null,2)+'\n';
+          // Work items take precedence over optional acceleration metadata near the
+          // existing record limit. An incomplete/missing snapshot forces safe fallback.
+          if(Buffer.byteLength(payload)>262144&&worktree) {
+            record.analysis.worktree={version:1,dirtyPaths:[],complete:false};
+            payload=JSON.stringify(record,null,2)+'\n';
+            if(Buffer.byteLength(payload)>262144){delete record.analysis.worktree;payload=JSON.stringify(record,null,2)+'\n';}
+          }
+          if(Buffer.byteLength(payload)>262144)throw new Error('工作记录超过 256 KiB。');
+          const temporary=path.join(directory,`state-${randomUUID()}.tmp`);
+          try { await writeFile(temporary,payload,{flag:'wx'});await rename(temporary,path.join(directory,'state.json')); }
+          finally { await unlink(temporary).catch(()=>{}); }
+          saved=true;e.state='idle';e.error=null;
+        } catch(error) {e.state='failed';e.error=error.message;}
+        finally {
+          finish();
+          // Only the owner writes diagnostics, while its lease is still held.
+          // Diagnostic failures never invalidate a successfully saved map.
+          await saveLastRun(directory,e.lastRun).catch(()=>{});
+        }
+      }, {timeoutMs:0,label:'工作地图保存锁'});
+    } catch(error) {
+      e.state='failed';
+      e.error=saved?`工作记录已保存，但保存锁释放失败：${error.message}。请先查询状态核对记录，再按故障排查恢复锁，不要直接重复保存。`:error.message;
+      if(!finalized)finish();
+    } finally {
       e.pending=null;e.controller=null;
     }
   }

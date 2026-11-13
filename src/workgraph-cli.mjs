@@ -8,6 +8,7 @@ import { loadWorkRecord } from './work-graph.mjs';
 import { resolveRepository } from './git.mjs';
 import { startHttp } from './http.mjs';
 import { readResumeContext } from './work-resume.mjs';
+import { previewMapUpdate, readMapInput, verifyMapPreview } from './work-preview.mjs';
 
 export async function prepareWorkMap(repositoryPath) {
   const {root,bare}=await resolveRepository(repositoryPath);
@@ -39,12 +40,6 @@ export async function saveWorkMap(repositoryPath, packet, result) {
   } finally {await service.close();}
 }
 
-async function jsonFile(filename) {
-  const info=await lstat(filename);
-  if(!info.isFile()||info.isSymbolicLink()||info.size>4*1024*1024)throw new Error('输入必须是小于 4 MiB 的普通 JSON 文件。');
-  return JSON.parse((await readFile(filename,'utf8')).replace(/^\uFEFF/,''));
-}
-
 async function requestPath(repositoryPath) {
   const {root,bare}=await resolveRepository(repositoryPath);
   if(bare)throw new Error('裸仓库不能建立工作地图。');
@@ -61,12 +56,17 @@ async function requestPath(repositoryPath) {
 export async function runCli(argv) {
   const [command,...args]=argv;
   if(!command||command==='--help'||command==='help')return {
-    commands:['doctor','status --repo <path>','resume --repo <path> --work <id>','context --repo <path>','save --repo <path> --context <context.json> --input <candidate.json>','open --repo <path>'],
+    commands:['doctor','status --repo <path>','resume --repo <path> --work <id>','context --repo <path>','preview --context <context.json> --input <candidate.json>','save --repo <path> --context <context.json> --input <candidate.json> [--preview <preview.json>]','open --repo <path>'],
     resumeOutput:'resume returns bounded JSON including copyable text; it reads historical records and current metadata without sending messages or writing files.',
-    usage:'Only context + save update the work map when the user requests it. status/open/resume never start analysis. open stays running until Ctrl+C.',
+    usage:'Only context + save update the work map when the user requests it. status/open/resume/preview never start analysis. open stays running until Ctrl+C.',
   };
   const options={};
-  for(let i=0;i<args.length;i+=2){if(!['--repo','--context','--input','--work'].includes(args[i])||!args[i+1]||args[i+1].startsWith('--')||options[args[i]])throw new Error('参数无效，请运行 --help。');options[args[i]]=args[i+1];}
+  for(let i=0;i<args.length;i+=2){if(!['--repo','--context','--input','--work','--preview'].includes(args[i])||!args[i+1]||args[i+1].startsWith('--')||options[args[i]])throw new Error('参数无效，请运行 --help。');options[args[i]]=args[i+1];}
+  if(options['--preview'] && command !== 'save')throw new Error('--preview 仅用于 save。');
+  if(command==='preview') {
+    if(!options['--context']||!options['--input']||Object.keys(options).length!==2)throw new Error('preview 需要 --context 和 --input，且只接受这两个参数。');
+    return previewMapUpdate(await readMapInput(options['--context'], '分析材料'), await readMapInput(options['--input'], '候选工作记录'));
+  }
   if(command==='doctor') {
     for(const asset of ['./graph.html','../references/initialize.md','../references/update.md'])await readFile(new URL(asset,import.meta.url));
     return {node:process.version,git:execFileSync('git',['--version'],{encoding:'utf8',windowsHide:true}).trim(),ready:Number(process.versions.node.split('.')[0])>=22};
@@ -89,7 +89,10 @@ export async function runCli(argv) {
   }
   if(command==='save') {
     if(!options['--context']||!options['--input'])throw new Error('save 需要 --context 和 --input。');
-    return saveWorkMap(repo,await jsonFile(options['--context']),await jsonFile(options['--input']));
+    const context = await readMapInput(options['--context'], '分析材料');
+    const candidate = await readMapInput(options['--input'], '候选工作记录');
+    if (options['--preview']) await verifyMapPreview(options['--preview'], context, candidate);
+    return saveWorkMap(repo, context.value, candidate.value);
   }
   if(command==='open') {
     const html=await readFile(new URL('./graph.html',import.meta.url),'utf8');
