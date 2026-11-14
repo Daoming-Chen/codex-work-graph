@@ -1,0 +1,144 @@
+name: Verify preview in Windows PowerShell
+
+on:
+  push:
+    branches: ['verify/preview-powershell-20261114']
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    name: Preview with ${{ matrix.shell }}
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run check:generated
+      - name: Run the documented preview pipeline
+        shell: ${{ matrix.shell }}
+        env:
+          VERIFY_POWERSHELL_SHELL: ${{ matrix.shell }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSVersionTable | Format-List
+          Write-Host "[Console]::OutputEncoding is $([Console]::OutputEncoding.WebName)"
+          if ($env:VERIFY_POWERSHELL_SHELL -eq 'powershell') {
+            if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+              throw 'Expected Windows PowerShell 5.1.'
+            }
+            $env:VERIFY_PREVIEW_BOM = 'yes'
+          } else {
+            if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) {
+              throw 'Expected PowerShell 7 or later.'
+            }
+            $env:VERIFY_PREVIEW_BOM = 'no'
+          }
+
+          $suffix = Join-Path ([guid]::NewGuid().ToString()) ('Repo with spaces ' + [char]0x4e2d + [char]0x6587)
+          $env:VERIFY_PREVIEW_ROOT = Join-Path $env:RUNNER_TEMP $suffix
+          $env:VERIFY_PREVIEW_CLI = Join-Path $env:GITHUB_WORKSPACE 'skills\workgraph\scripts\workgraph.mjs'
+          $helper = Join-Path $env:RUNNER_TEMP ('workgraph-preview-' + [guid]::NewGuid().ToString() + '.cjs')
+
+          # Read native stdout as raw UTF-8 for setup and save assertions. Only
+          # the documented preview command passes stdout through PowerShell.
+          @'
+          const assert = require('node:assert/strict');
+          const { spawnSync } = require('node:child_process');
+          const { createHash } = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = process.env.VERIFY_PREVIEW_ROOT;
+          const cli = process.env.VERIFY_PREVIEW_CLI;
+          const metadata = path.join(root, '.workgraph', 'smoke-inputs.json');
+          const map = path.join(root, '.workgraph', 'state.json');
+          const title = String.fromCodePoint(0x4e2d, 0x6587, 0x1f916);
+          const workId = 'WG-ENCODING';
+          const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+          const decode = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+          const invoke = (exe, args) => spawnSync(exe, args, { cwd: root, windowsHide: true });
+          function success(exe, args) {
+            const result = invoke(exe, args);
+            if (result.error) throw result.error;
+            assert.equal(result.status, 0, result.stderr.toString('utf8'));
+            return decode(result.stdout);
+          }
+
+          if (process.argv[2] === 'setup') {
+            fs.mkdirSync(root, { recursive: true });
+            success('git', ['init', '-b', 'main']);
+            const packet = JSON.parse(success(process.execPath, [cli, 'context', '--repo', root]));
+            assert.equal(packet.mode, 'initialize');
+            const candidate = {
+              version: 1,
+              works: [{ id: workId, title, status: String.fromCodePoint(0x8fdb, 0x884c, 0x4e2d), commits: [] }],
+            };
+            fs.writeFileSync(packet.candidatePath, '\ufeff' + JSON.stringify(candidate), 'utf8');
+            fs.writeFileSync(metadata, JSON.stringify(packet), 'utf8');
+          } else if (process.argv[2] === 'verify') {
+            const { contextPath, candidatePath } = JSON.parse(fs.readFileSync(metadata, 'utf8'));
+            const previewPath = path.join(path.dirname(contextPath), 'preview.json');
+            const receiptBytes = fs.readFileSync(previewPath);
+            const hasBom = receiptBytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]));
+            assert.equal(hasBom, process.env.VERIFY_PREVIEW_BOM === 'yes');
+            assert.ok(receiptBytes.length <= 64 * 1024);
+            const receipt = JSON.parse(decode(receiptBytes));
+            assert.equal(receipt.state, 'preview');
+            assert.equal(receipt.details.added[0].title.text, title, 'PowerShell changed the non-ASCII preview title');
+            assert.equal(receipt.contextDigest, digest(fs.readFileSync(contextPath)));
+            assert.equal(receipt.candidateDigest, digest(fs.readFileSync(candidatePath)));
+            console.log('Verified preview JSON bytes, expected BOM, non-ASCII title, and input digests.');
+
+            const saveArgs = [cli, 'save', '--repo', root, '--context', contextPath, '--input', candidatePath, '--preview', previewPath];
+            assert.equal(JSON.parse(success(process.execPath, saveArgs)).state, 'saved');
+            const before = fs.readFileSync(map);
+            const readStatus = () => JSON.parse(success(process.execPath, [cli, 'status', '--repo', root]));
+            const work = readStatus().manifest.works[0];
+            assert.equal(work.id, workId);
+            assert.equal(work.title, title);
+
+            for (const input of [contextPath, candidatePath]) {
+              const original = fs.readFileSync(input);
+              try {
+                fs.appendFileSync(input, '\n', 'ascii');
+                const rejected = invoke(process.execPath, saveArgs);
+                if (rejected.error) throw rejected.error;
+                assert.equal(rejected.status, 1);
+                assert.match(JSON.parse(decode(rejected.stderr)).error, /\u5728\u9884\u89c8\u540e\u5df2\u53d8\u5316/);
+                assert.deepEqual(fs.readFileSync(map), before);
+              } finally {
+                fs.writeFileSync(input, original);
+              }
+            }
+            assert.equal(readStatus().manifest.works[0].title, title);
+            console.log('Bound save and status passed. Both byte mutations were rejected with the map preserved.');
+          } else {
+            throw new Error('Expected setup or verify.');
+          }
+          '@ | Set-Content -LiteralPath $helper -Encoding ascii
+
+          node $helper setup
+          $setupExit = $LASTEXITCODE
+          if ($setupExit -ne 0) { throw "Fixture setup failed with exit code $setupExit." }
+          $packetFile = Join-Path $env:VERIFY_PREVIEW_ROOT '.workgraph\smoke-inputs.json'
+          $packet = Get-Content -LiteralPath $packetFile -Raw -Encoding utf8 | ConvertFrom-Json
+          $previewPath = Join-Path (Split-Path -LiteralPath $packet.contextPath) 'preview.json'
+
+          node $env:VERIFY_PREVIEW_CLI preview --context $packet.contextPath --input $packet.candidatePath |
+            Set-Content -LiteralPath $previewPath -Encoding utf8
+          $previewExit = $LASTEXITCODE
+          if ($previewExit -ne 0) { throw "Preview failed with exit code $previewExit." }
+
+          node $helper verify
+          $verifyExit = $LASTEXITCODE
+          if ($verifyExit -ne 0) { throw "Preview or save checks failed with exit code $verifyExit." }
